@@ -423,10 +423,12 @@ class Manager:
                     else:
                         shutil.copy2(source_path, dest_path)
 
-                # Index
+                # Index (with lock to prevent SQLite threading issues)
                 scanner = HttpCatcherScanner.default()
                 indexer = Indexer(self.db, scanner)
-                result = indexer.index_file(dest_path, force_reindex=True)
+
+                with db_lock:
+                    result = indexer.index_file(dest_path, force_reindex=True)
 
                 return True, f"{source_path.name}: {result['requests_added']} requests", result['requests_added']
             except Exception as e:
@@ -441,8 +443,12 @@ class Manager:
 
         # Parallel processing - use CPU count * 2 for I/O bound tasks
         import os
+        from threading import Lock
         default_workers = min(os.cpu_count() * 2 if os.cpu_count() else 8, 16)
         max_workers = self.config.get('indexing', {}).get('parallel_workers', default_workers)
+
+        # Lock for database operations to prevent SQLite threading issues
+        db_lock = Lock()
 
         success_count = 0
         failed_count = 0
@@ -674,15 +680,21 @@ class Manager:
                 if not file_path.exists():
                     return False, f"{file_info['filename']}: File not found", 0
 
-                result = indexer.index_file(file_path, force_reindex=True)
+                with db_lock:
+                    result = indexer.index_file(file_path, force_reindex=True)
                 return True, f"{file_info['filename']}: {result['requests_added']} requests", result['requests_added']
             except Exception as e:
                 return False, f"{file_info['filename']}: Error - {e}", 0
 
         # Use CPU count * 2 for I/O bound tasks
         import os
+        from threading import Lock
         default_workers = min(os.cpu_count() * 2 if os.cpu_count() else 8, 16)
         max_workers = self.config.get('indexing', {}).get('parallel_workers', default_workers)
+
+        # Lock for database operations
+        db_lock = Lock()
+
         success_count = 0
         failed_count = 0
         total_requests = 0

@@ -245,7 +245,7 @@ class Database:
         conn = sqlite3.connect(
             str(self.db_path),
             check_same_thread=False,  # Allow multi-threaded access
-            isolation_level=None  # Autocommit mode
+            timeout=30.0  # Wait up to 30 seconds for locks
         )
         conn.row_factory = sqlite3.Row  # Access columns by name
 
