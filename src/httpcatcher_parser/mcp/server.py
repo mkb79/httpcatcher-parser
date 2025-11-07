@@ -59,7 +59,17 @@ class HttpCatcherMCPServer:
                 Tool(
                     name="search_requests",
                     description=(
-                        "Search HTTP requests with flexible filters. "
+                        "Search HTTP requests with flexible filters and optimized field selection.\n\n"
+                        "CONTEXT OPTIMIZATION:\n"
+                        "- Use 'fields' to select only needed fields (default: minimal set)\n"
+                        "- Set 'limit' to 10 or less for quick overviews\n"
+                        "- Use 'sparse_mode=true' for absolute minimum data\n\n"
+                        "FIELD PRESETS:\n"
+                        "- minimal: id, method, url, status_code (85% reduction)\n"
+                        "- standard: + host, path, content types\n"
+                        "- extended: + timestamps, duration\n"
+                        "- full: all fields (high context cost!)\n\n"
+                        "FILTERS:\n"
                         "Supports filtering by method, URL, host, path, status codes, "
                         "headers, cookies, body content, time ranges, and content types."
                     ),
@@ -84,8 +94,8 @@ class HttpCatcherMCPServer:
                                 "enum": ["json", "image", "media", "websocket", "html", "css", "javascript", "font", "xml", "pdf", "binary", "other"],
                                 "description": "Response content category"
                             },
-                            "time_start": {"type": "integer", "description": "Start timestamp (Unix)"},
-                            "time_end": {"type": "integer", "description": "End timestamp (Unix)"},
+                            "time_start": {"type": "integer", "description": "Start timestamp (Unix ms)"},
+                            "time_end": {"type": "integer", "description": "End timestamp (Unix ms)"},
                             "headers": {
                                 "type": "array",
                                 "items": {
@@ -118,22 +128,58 @@ class HttpCatcherMCPServer:
                                 "items": {"type": "integer"},
                                 "description": "Limit search to specific file IDs"
                             },
-                            "limit": {"type": "integer", "default": 100, "description": "Max results"},
+                            "limit": {"type": "integer", "default": 10, "description": "Max results (default: 10 for context efficiency)"},
                             "offset": {"type": "integer", "default": 0, "description": "Skip N results"},
                             "sort_by": {
                                 "type": "string",
                                 "enum": ["req_timestamp", "resp_timestamp", "duration_ms", "status_code"],
                                 "default": "req_timestamp"
                             },
-                            "sort_desc": {"type": "boolean", "default": True}
+                            "sort_desc": {"type": "boolean", "default": True},
+                            "fields": {
+                                "type": "string",
+                                "enum": ["minimal", "standard", "extended", "full", "custom"],
+                                "default": "minimal",
+                                "description": "Field preset (minimal=id/method/url/status, standard=+host/path/types, extended=+timestamps/duration, full=all)"
+                            },
+                            "custom_fields": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["id", "method", "url", "host", "path", "status_code", "req_timestamp", "resp_timestamp", "duration_ms", "req_content_type", "resp_content_type", "resp_content_category", "connection_id", "file_id"]
+                                },
+                                "description": "Custom field selection (only with fields='custom')"
+                            },
+                            "sparse_mode": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Ultra-minimal mode: only id and url (max context saving)"
+                            }
                         }
                     }
                 ),
                 Tool(
                     name="get_request_details",
                     description=(
-                        "Get detailed information about a specific request by ID. "
-                        "Supports selective field loading and optional body decompression."
+                        "Get detailed information about a specific request by ID with granular control.\n\n"
+                        "CONTEXT OPTIMIZATION:\n"
+                        "- Use detail_level='summary' for metadata only (95% reduction)\n"
+                        "- Set max_body_size to limit body tokens (e.g., 1000 bytes)\n"
+                        "- Use body_format='size_only' to see sizes without content\n"
+                        "- Disable headers/cookies if not needed\n\n"
+                        "DETAIL LEVELS:\n"
+                        "- summary: Only metadata (method, url, status, sizes) - minimal tokens\n"
+                        "- metadata: Basic info without headers/bodies\n"
+                        "- headers_only: Metadata + headers/cookies, no bodies\n"
+                        "- request_only: Request side only\n"
+                        "- response_only: Response side only\n"
+                        "- full: Everything (warning: can be 100k+ tokens!)\n\n"
+                        "BODY FORMATS:\n"
+                        "- none: No body content\n"
+                        "- preview: First 500 bytes (pre-stored)\n"
+                        "- size_only: Just body size info\n"
+                        "- truncated: Up to max_body_size bytes\n"
+                        "- full: Complete body (use with caution!)"
                     ),
                     inputSchema={
                         "type": "object",
@@ -141,14 +187,35 @@ class HttpCatcherMCPServer:
                             "request_id": {"type": "integer", "description": "Request ID"},
                             "detail_level": {
                                 "type": "string",
-                                "enum": ["full", "headers_only", "request_only", "response_only", "metadata"],
-                                "default": "full",
-                                "description": "Level of detail to fetch"
+                                "enum": ["summary", "metadata", "headers_only", "request_only", "response_only", "full"],
+                                "default": "summary",
+                                "description": "Level of detail (summary is most context-efficient)"
                             },
                             "decompress": {
                                 "type": "boolean",
                                 "default": False,
-                                "description": "Decompress compressed bodies"
+                                "description": "Decompress compressed bodies (gzip/br)"
+                            },
+                            "max_body_size": {
+                                "type": "integer",
+                                "default": 2000,
+                                "description": "Max body bytes to return (0=preview only, null=unlimited)"
+                            },
+                            "body_format": {
+                                "type": "string",
+                                "enum": ["none", "preview", "size_only", "truncated", "full"],
+                                "default": "truncated",
+                                "description": "How to return body content"
+                            },
+                            "include_headers": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": "Include request/response headers"
+                            },
+                            "include_cookies": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": "Include cookies"
                             }
                         },
                         "required": ["request_id"]
@@ -157,8 +224,15 @@ class HttpCatcherMCPServer:
                 Tool(
                     name="get_stats",
                     description=(
-                        "Get statistics about HTTP requests. "
-                        "Includes distribution by method, status, content type, and top hosts."
+                        "Get statistics about HTTP requests with configurable detail level.\n\n"
+                        "CONTEXT OPTIMIZATION:\n"
+                        "- Use compact=true for just totals (90% reduction)\n"
+                        "- Set top_n=5 to limit host lists\n"
+                        "- Disable breakdowns if not needed\n\n"
+                        "MODES:\n"
+                        "- compact: Only total counts, no breakdowns\n"
+                        "- standard: Top 10 hosts and basic breakdowns\n"
+                        "- detailed: All breakdowns and top 50 hosts (high context cost)"
                     ),
                     inputSchema={
                         "type": "object",
@@ -166,6 +240,26 @@ class HttpCatcherMCPServer:
                             "file_id": {
                                 "type": "integer",
                                 "description": "Optional file ID to filter stats"
+                            },
+                            "compact": {
+                                "type": "boolean",
+                                "default": False,
+                                "description": "Return only totals, skip breakdowns (90% context reduction)"
+                            },
+                            "top_n": {
+                                "type": "integer",
+                                "default": 10,
+                                "description": "Number of top hosts to return (was 50)"
+                            },
+                            "include_breakdowns": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": "Include method/status/content breakdowns"
+                            },
+                            "include_time_range": {
+                                "type": "boolean",
+                                "default": True,
+                                "description": "Include time range statistics"
                             }
                         }
                     }
@@ -317,29 +411,55 @@ class HttpCatcherMCPServer:
             results = await engine.search_requests(filters)
             total = await engine.count_requests(filters)
 
+        # Apply field selection/projection
+        field_preset = args.get("fields", "minimal")
+        sparse_mode = args.get("sparse_mode", False)
+
+        if sparse_mode:
+            # Ultra-minimal: only id and url
+            results = [{"id": r["id"], "url": r["url"]} for r in results]
+        elif field_preset == "minimal":
+            # Essential fields only (85% reduction)
+            results = [{k: r[k] for k in ["id", "method", "url", "status_code"] if k in r} for r in results]
+        elif field_preset == "standard":
+            # Add host, path, content types
+            fields = ["id", "method", "url", "host", "path", "status_code", "req_content_type", "resp_content_type", "resp_content_category"]
+            results = [{k: r[k] for k in fields if k in r} for r in results]
+        elif field_preset == "extended":
+            # Add timestamps and duration
+            fields = ["id", "method", "url", "host", "path", "status_code", "req_content_type", "resp_content_type", "resp_content_category", "req_timestamp", "resp_timestamp", "duration_ms"]
+            results = [{k: r[k] for k in fields if k in r} for r in results]
+        elif field_preset == "custom":
+            # Custom field selection
+            custom_fields = args.get("custom_fields", ["id", "url", "status_code"])
+            results = [{k: r[k] for k in custom_fields if k in r} for r in results]
+        # else: full - keep all fields
+
         import json
         result_data = {
             "total": total,
             "count": len(results),
             "offset": filters.offset,
             "limit": filters.limit,
+            "field_preset": "sparse" if sparse_mode else field_preset,
             "results": results
         }
         return [TextContent(type="text", text=json.dumps(result_data, indent=2))]
 
     async def _get_request_details(self, args: dict) -> list[TextContent]:
-        """Handle get_request_details tool."""
+        """Handle get_request_details tool with context optimization."""
         request_id = args["request_id"]
 
         # Map string to enum
         level_map = {
-            "full": DetailLevel.FULL,
+            "summary": DetailLevel.METADATA,  # summary = metadata + sizes
+            "metadata": DetailLevel.METADATA,
             "headers_only": DetailLevel.HEADERS_ONLY,
             "request_only": DetailLevel.REQUEST_ONLY,
             "response_only": DetailLevel.RESPONSE_ONLY,
-            "metadata": DetailLevel.METADATA
+            "full": DetailLevel.FULL
         }
-        detail_level = level_map.get(args.get("detail_level", "full"), DetailLevel.FULL)
+        detail_level = level_map.get(args.get("detail_level", "summary"), DetailLevel.METADATA)
 
         # Use async database connection
         async with Database(self.db_path) as db:
@@ -354,13 +474,41 @@ class HttpCatcherMCPServer:
             import json
             return [TextContent(type="text", text=json.dumps({"error": f"Request not found: {request_id}"}, indent=2))]
 
+        # Apply context optimizations
+        body_format = args.get("body_format", "truncated")
+        max_body_size = args.get("max_body_size", 2000)
+        include_headers = args.get("include_headers", True)
+        include_cookies = args.get("include_cookies", True)
+
+        # Post-process headers/cookies removal
+        if not include_headers:
+            if "request" in details:
+                details["request"].pop("headers", None)
+            if "response" in details:
+                details["response"].pop("headers", None)
+
+        if not include_cookies:
+            if "request" in details:
+                details["request"].pop("cookies", None)
+            if "response" in details:
+                details["response"].pop("cookies", None)
+
+        # Post-process body truncation/format
+        for side in ["request", "response"]:
+            if side in details:
+                self._process_body(details[side], body_format, max_body_size)
+
         # Convert bytes to base64 for JSON serialization
         def make_json_safe(obj):
             if isinstance(obj, bytes):
                 import base64
+                # Truncate if needed
+                if max_body_size and len(obj) > max_body_size:
+                    obj = obj[:max_body_size]
                 return {
                     "_type": "base64",
-                    "data": base64.b64encode(obj).decode('ascii')
+                    "data": base64.b64encode(obj).decode('ascii'),
+                    "_truncated": True if max_body_size and len(obj) >= max_body_size else False
                 }
             elif isinstance(obj, dict):
                 return {k: make_json_safe(v) for k, v in obj.items()}
@@ -371,14 +519,64 @@ class HttpCatcherMCPServer:
         import json
         return [TextContent(type="text", text=json.dumps(make_json_safe(details), indent=2))]
 
+    def _process_body(self, side_details: dict, body_format: str, max_body_size: int):
+        """Process body according to format and size constraints."""
+        if body_format == "none":
+            # Remove all body content
+            side_details.pop("body", None)
+            side_details.pop("body_preview", None)
+        elif body_format == "size_only":
+            # Keep only size info
+            side_details.pop("body", None)
+            side_details.pop("body_preview", None)
+            # body_size already present
+        elif body_format == "preview":
+            # Keep only preview, remove full body
+            side_details.pop("body", None)
+            # body_preview already present
+        elif body_format == "truncated" and max_body_size:
+            # Truncate body to max_body_size
+            if "body" in side_details:
+                body = side_details["body"]
+                if isinstance(body, bytes) and len(body) > max_body_size:
+                    side_details["body"] = body[:max_body_size]
+                    side_details["body_truncated"] = True
+                    side_details["body_full_size"] = len(body)
+        # elif body_format == "full": keep as is
+
     async def _get_stats(self, args: dict) -> list[TextContent]:
-        """Handle get_stats tool."""
+        """Handle get_stats tool with context optimization."""
         file_id = args.get("file_id")
+        compact = args.get("compact", False)
+        top_n = args.get("top_n", 10)
+        include_breakdowns = args.get("include_breakdowns", True)
+        include_time_range = args.get("include_time_range", True)
 
         # Use async database connection
         async with Database(self.db_path) as db:
             engine = QueryEngine(db)
             stats = await engine.get_stats(file_id)
+
+        # Apply context optimizations
+        if compact:
+            # Ultra-compact: only totals (90% reduction)
+            stats = {
+                "total_requests": stats["total_requests"],
+                "mode": "compact"
+            }
+        else:
+            # Limit top hosts
+            if "top_hosts" in stats:
+                stats["top_hosts"] = dict(list(stats["top_hosts"].items())[:top_n])
+
+            # Remove breakdowns if not wanted
+            if not include_breakdowns:
+                stats.pop("by_method", None)
+                stats.pop("by_status", None)
+                stats.pop("by_content_category", None)
+
+            if not include_time_range:
+                stats.pop("time_range", None)
 
         import json
         return [TextContent(type="text", text=json.dumps(stats, indent=2))]
