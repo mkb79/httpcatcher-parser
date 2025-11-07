@@ -1033,8 +1033,9 @@ class Manager:
             # Time range
             if stats['time_range']['start']:
                 from datetime import datetime
-                start = datetime.fromtimestamp(stats['time_range']['start'])
-                end = datetime.fromtimestamp(stats['time_range']['end'])
+                # Convert milliseconds to seconds
+                start = datetime.fromtimestamp(stats['time_range']['start'] / 1000)
+                end = datetime.fromtimestamp(stats['time_range']['end'] / 1000)
                 print(f"Time Range: {start} to {end}\n")
 
             # Duration stats
@@ -1160,11 +1161,13 @@ class Manager:
             print(f"Status: {details['status_code']}")
 
             if details.get('req_timestamp'):
-                req_time = datetime.fromtimestamp(details['req_timestamp'])
+                # Convert milliseconds to seconds
+                req_time = datetime.fromtimestamp(details['req_timestamp'] / 1000)
                 print(f"Request Time: {req_time}")
 
             if details.get('resp_timestamp'):
-                resp_time = datetime.fromtimestamp(details['resp_timestamp'])
+                # Convert milliseconds to seconds
+                resp_time = datetime.fromtimestamp(details['resp_timestamp'] / 1000)
                 print(f"Response Time: {resp_time}")
 
             if details.get('duration_ms') is not None:
