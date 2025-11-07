@@ -126,8 +126,10 @@ All `manage.py` commands now use async modules with `asyncio.run()` pattern:
 
 **File Commands:**
 - `files list` - List indexed files
-- `files add` - Add single file with async indexing
+- `files add` - Add single file with async indexing + progress indicators
 - `files add-dir` - **Parallel batch processing with `asyncio.gather()`** ⚡
+  - Real-time progress bar with `tqdm`
+  - Shows: completion %, file count, speed (files/s), current filename
   - No `threading.Lock()` needed
   - True I/O concurrency
   - No threading errors
@@ -140,15 +142,42 @@ All `manage.py` commands now use async modules with `asyncio.run()` pattern:
 - `keys` - List header/cookie keys
 - `details` - Request details
 
-### Key Achievement: Parallel Import
+### Key Achievement: Parallel Import with Progress Bar
 
-The `files add-dir` command now uses:
+The `files add-dir` command now uses `asyncio.as_completed()` with real-time progress:
 ```python
-# Process all files in parallel with asyncio.gather()
-results = await asyncio.gather(*[process_file(f) for f in files])
+# Process with progress bar using asyncio.as_completed for real-time updates
+from tqdm.asyncio import tqdm as async_tqdm
+
+with async_tqdm(total=len(files), desc="Processing files", unit="file") as pbar:
+    for coro in asyncio.as_completed(tasks):
+        result = await coro
+        # Update progress bar with current file info
+        success, message, req_count, filename = result
+        status = "✓" if success else "✗"
+        pbar.set_postfix_str(f"{status} {filename[:30]}")
+        pbar.update(1)
+```
+
+**Example Output:**
+```
+Found 25 file(s)
+
+Processing files:  80%|████████  | 20/25 [00:15<00:03, 1.33file/s, ✓ 2024_10_20__22_12_34]
+
+Successful:
+  [✓] 2024_04_17__15_56_56: 156 requests
+  [✓] 2024_10_20__22_12_34: 170 requests
+  ...
+
+Summary:
+  Added: 25 files
+  Total requests: 9,475
 ```
 
 **Benefits:**
+- ✅ Real-time progress indication
+- ✅ Shows speed (files/s) and ETA
 - ✅ No threading locks needed
 - ✅ No "bad parameter" SQLite errors
 - ✅ No FOREIGN KEY constraint failures
