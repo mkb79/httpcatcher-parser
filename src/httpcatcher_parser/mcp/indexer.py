@@ -341,12 +341,11 @@ class Indexer:
 
         key_indexer = KeyIndexer(self.db)
 
-        # Prepare batch data
+        # Prepare batch data for requests
         requests_batch = []
-        req_headers_batch = []
-        resp_headers_batch = []
-        req_cookies_batch = []
-        resp_cookies_batch = []
+        # We'll collect headers/cookies data with original_request_id as key
+        headers_data = {}  # original_request_id -> (req_headers, resp_headers)
+        cookies_data = {}  # original_request_id -> (req_cookies, resp_cookies_list)
 
         for req_id, agg in aggregations.items():
             # Parse headers
@@ -378,9 +377,9 @@ class Indexer:
             if agg.req_header_ts and agg.resp_header_ts:
                 duration_ms = agg.resp_header_ts - agg.req_header_ts
 
-            # Insert request
+            # Insert request (without id - will be auto-generated)
             requests_batch.append((
-                req_id, file_id,
+                file_id, req_id,  # file_id, original_request_id
                 agg.method, agg.url, agg.host, agg.path, agg.status_code,
                 agg.req_header_ts, agg.resp_header_ts, duration_ms,
                 agg.connection_id, None,  # port TODO: get from connection
@@ -392,37 +391,15 @@ class Indexer:
                 req_body_preview, resp_body_preview
             ))
 
-            # Insert headers with normalized keys
-            for name, value in req_headers:
-                key_id = key_indexer.get_or_create_header_key(name)
-                req_headers_batch.append((req_id, key_id, value))
+            # Store headers/cookies data for later insertion with correct db IDs
+            headers_data[req_id] = (req_headers, resp_headers)
+            cookies_data[req_id] = (req_cookies, resp_cookies_list)
 
-            for name, value in resp_headers:
-                key_id = key_indexer.get_or_create_header_key(name)
-                resp_headers_batch.append((req_id, key_id, value))
-
-            # Insert cookies with normalized keys
-            for name, value in req_cookies:
-                key_id = key_indexer.get_or_create_cookie_key(name)
-                req_cookies_batch.append((req_id, key_id, value))
-
-            for cookie in resp_cookies_list:
-                key_id = key_indexer.get_or_create_cookie_key(cookie['name'])
-                resp_cookies_batch.append((
-                    req_id, key_id, cookie['value'],
-                    cookie.get('domain'), cookie.get('path'), cookie.get('expires'),
-                    cookie.get('http_only', False), cookie.get('secure', False),
-                    cookie.get('same_site')
-                ))
-
-        # Bulk inserts with explicit transaction for better performance
-        # Single large transaction is much faster than autocommit per statement
-        self.db.conn.execute("BEGIN TRANSACTION")
-
+        # Insert requests - id will be auto-generated
         self.db.conn.executemany(
             """
             INSERT INTO requests (
-                id, file_id, method, url, host, path, status_code,
+                file_id, original_request_id, method, url, host, path, status_code,
                 req_timestamp, resp_timestamp, duration_ms,
                 connection_id, port,
                 req_content_type, resp_content_type, resp_content_category,
@@ -436,6 +413,53 @@ class Indexer:
             requests_batch
         )
 
+        # Get the mapping of original_request_id -> new db id
+        cursor = self.db.conn.execute(
+            "SELECT id, original_request_id FROM requests WHERE file_id = ?",
+            (file_id,)
+        )
+        id_mapping = {orig_id: db_id for db_id, orig_id in cursor.fetchall()}
+
+        # Now prepare headers/cookies batches with correct db IDs
+        req_headers_batch = []
+        resp_headers_batch = []
+        req_cookies_batch = []
+        resp_cookies_batch = []
+
+        for orig_req_id, (req_headers, resp_headers) in headers_data.items():
+            db_id = id_mapping.get(orig_req_id)
+            if not db_id:
+                continue
+
+            # Insert headers with normalized keys
+            for name, value in req_headers:
+                key_id = key_indexer.get_or_create_header_key(name)
+                req_headers_batch.append((db_id, key_id, value))
+
+            for name, value in resp_headers:
+                key_id = key_indexer.get_or_create_header_key(name)
+                resp_headers_batch.append((db_id, key_id, value))
+
+        for orig_req_id, (req_cookies, resp_cookies_list) in cookies_data.items():
+            db_id = id_mapping.get(orig_req_id)
+            if not db_id:
+                continue
+
+            # Insert cookies with normalized keys
+            for name, value in req_cookies:
+                key_id = key_indexer.get_or_create_cookie_key(name)
+                req_cookies_batch.append((db_id, key_id, value))
+
+            for cookie in resp_cookies_list:
+                key_id = key_indexer.get_or_create_cookie_key(cookie['name'])
+                resp_cookies_batch.append((
+                    db_id, key_id, cookie['value'],
+                    cookie.get('domain'), cookie.get('path'), cookie.get('expires'),
+                    cookie.get('http_only', False), cookie.get('secure', False),
+                    cookie.get('same_site')
+                ))
+
+        # Insert headers and cookies
         if req_headers_batch:
             self.db.conn.executemany(
                 "INSERT INTO request_headers (request_id, key_id, value) VALUES (?, ?, ?)",
@@ -465,8 +489,5 @@ class Indexer:
             )
 
         self.db.conn.commit()
-
-        # Optimize after bulk insert
-        self.db.conn.execute("PRAGMA optimize")
 
         return len(requests_batch)

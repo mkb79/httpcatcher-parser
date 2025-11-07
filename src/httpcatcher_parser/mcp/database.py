@@ -54,8 +54,9 @@ CREATE INDEX IF NOT EXISTS idx_cookie_key_lower ON cookie_keys(name_lower);
 -- REQUESTS TABLE (Main request/response data)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS requests (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_id INTEGER NOT NULL,
+    original_request_id INTEGER NOT NULL,
 
     method TEXT,
     url TEXT,
@@ -89,10 +90,12 @@ CREATE TABLE IF NOT EXISTS requests (
     req_body_preview TEXT,
     resp_body_preview TEXT,
 
-    FOREIGN KEY (file_id) REFERENCES session_files(id) ON DELETE CASCADE
+    FOREIGN KEY (file_id) REFERENCES session_files(id) ON DELETE CASCADE,
+    UNIQUE(file_id, original_request_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_file_id ON requests(file_id);
+CREATE INDEX IF NOT EXISTS idx_original_request_id ON requests(original_request_id);
 CREATE INDEX IF NOT EXISTS idx_url ON requests(url);
 CREATE INDEX IF NOT EXISTS idx_host ON requests(host);
 CREATE INDEX IF NOT EXISTS idx_status ON requests(status_code);
