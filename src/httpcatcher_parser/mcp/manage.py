@@ -1168,11 +1168,11 @@ class Manager:
                 print(f"Body Size: {details['request']['body_size']} bytes")
 
                 print("\nHeaders:")
-                print(fetcher.format_headers(details['request']['headers']))
+                print(DetailFetcher.format_headers(details['request']['headers']))
 
                 if details['request']['cookies']:
                     print("\nCookies:")
-                    print(fetcher.format_cookies(details['request']['cookies']))
+                    print(DetailFetcher.format_cookies(details['request']['cookies']))
 
                 if 'body' in details['request']:
                     print("\nBody:")
@@ -1203,11 +1203,11 @@ class Manager:
                 print(f"Body Size: {details['response']['body_size']} bytes")
 
                 print("\nHeaders:")
-                print(fetcher.format_headers(details['response']['headers']))
+                print(DetailFetcher.format_headers(details['response']['headers']))
 
                 if details['response']['cookies']:
                     print("\nSet-Cookie:")
-                    print(fetcher.format_cookies(details['response']['cookies']))
+                    print(DetailFetcher.format_cookies(details['response']['cookies']))
 
                 if 'body' in details['response']:
                     print("\nBody:")

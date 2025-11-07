@@ -301,7 +301,8 @@ class DetailFetcher:
 
         return body_data
 
-    def format_headers(self, headers: list[dict]) -> str:
+    @staticmethod
+    def format_headers(headers: list[dict]) -> str:
         """Format headers for display.
 
         Args:
@@ -321,7 +322,8 @@ class DetailFetcher:
 
         return "\n".join(lines)
 
-    def format_cookies(self, cookies: list[dict]) -> str:
+    @staticmethod
+    def format_cookies(cookies: list[dict]) -> str:
         """Format cookies for display.
 
         Args:
