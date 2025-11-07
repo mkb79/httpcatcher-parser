@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class HttpCatcherMCPServer:
-    """MCP server for HTTP Catcher session analysis."""
+    """MCP server for HTTP Catcher session analysis (async version)."""
 
     def __init__(self, data_dir: Path):
         """Initialize MCP server.
@@ -38,22 +38,16 @@ class HttpCatcherMCPServer:
         """
         self.data_dir = data_dir
         self.db_path = data_dir / "index.db"
-        self.db: Optional[Database] = None
         self.server = Server("httpcatcher-mcp")
 
-        # Initialize components
-        self._init_database()
-        self._register_handlers()
-
-    def _init_database(self):
-        """Initialize database connection."""
+        # Check database exists
         if not self.db_path.exists():
             raise FileNotFoundError(
                 f"Database not found: {self.db_path}. Run 'hc-mcp init' first."
             )
 
-        self.db = Database(self.db_path)
-        logger.info(f"Connected to database: {self.db_path}")
+        logger.info(f"MCP server initialized with database: {self.db_path}")
+        self._register_handlers()
 
     def _register_handlers(self):
         """Register MCP handlers."""
@@ -316,9 +310,11 @@ class HttpCatcherMCPServer:
                     request=c.get("request", True)
                 ))
 
-        engine = QueryEngine(self.db)
-        results = engine.search_requests(filters)
-        total = engine.count_requests(filters)
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            engine = QueryEngine(db)
+            results = await engine.search_requests(filters)
+            total = await engine.count_requests(filters)
 
         return [{
             "total": total,
@@ -342,12 +338,14 @@ class HttpCatcherMCPServer:
         }
         detail_level = level_map.get(args.get("detail_level", "full"), DetailLevel.FULL)
 
-        fetcher = DetailFetcher(self.db)
-        details = fetcher.get_request_details(
-            request_id,
-            detail_level,
-            args.get("decompress", False)
-        )
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            fetcher = DetailFetcher(db)
+            details = await fetcher.get_request_details(
+                request_id,
+                detail_level,
+                args.get("decompress", False)
+            )
 
         if not details:
             return [{"error": f"Request not found: {request_id}"}]
@@ -372,15 +370,19 @@ class HttpCatcherMCPServer:
         """Handle get_stats tool."""
         file_id = args.get("file_id")
 
-        engine = QueryEngine(self.db)
-        stats = engine.get_stats(file_id)
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            engine = QueryEngine(db)
+            stats = await engine.get_stats(file_id)
 
         return [stats]
 
     async def _list_files(self, args: dict) -> list[dict]:
         """Handle list_files tool."""
-        tracker = FileTracker(self.db)
-        files = tracker.list_files()
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            tracker = FileTracker(db)
+            files = await tracker.list_files()
 
         # Sort
         sort_by = args.get("sort_by", "date")
@@ -399,8 +401,10 @@ class HttpCatcherMCPServer:
         """Handle get_available_keys tool."""
         key_type = args["key_type"]
 
-        engine = QueryEngine(self.db)
-        keys = engine.get_available_keys(key_type)
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            engine = QueryEngine(db)
+            keys = await engine.get_available_keys(key_type)
 
         return keys
 
@@ -410,8 +414,10 @@ class HttpCatcherMCPServer:
         key_type = args["key_type"]
         limit = args.get("limit", 20)
 
-        engine = QueryEngine(self.db)
-        keys = engine.autocomplete_key(prefix, key_type, limit)
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            engine = QueryEngine(db)
+            keys = await engine.autocomplete_key(prefix, key_type, limit)
 
         return keys
 
@@ -421,13 +427,16 @@ class HttpCatcherMCPServer:
         force_reindex = args.get("force_reindex", False)
 
         scanner = HttpCatcherScanner.default()
-        indexer = Indexer(self.db, scanner)
 
-        try:
-            result = indexer.index_file(file_path, force_reindex)
-            return [result]
-        except Exception as e:
-            return [{"error": str(e)}]
+        # Use async database connection
+        async with Database(self.db_path) as db:
+            indexer = Indexer(db, scanner)
+
+            try:
+                result = await indexer.index_file(file_path, force_reindex)
+                return [result]
+            except Exception as e:
+                return [{"error": str(e)}]
 
     def run(self):
         """Run the MCP server (stdio mode)."""
