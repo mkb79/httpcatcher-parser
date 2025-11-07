@@ -258,14 +258,19 @@ class FileTracker:
     def scan_directory(
         self,
         directory: Path,
-        pattern: str = "*.session",
+        pattern: str = "????_??_??__??_??_??*",
         recursive: bool = True
     ) -> list[Path]:
-        """Scan directory for session files.
+        """Scan directory for HTTP Catcher session files.
+
+        HTTP Catcher session files follow the naming pattern:
+        YYYY_MM_DD__HH_MM_SS (e.g., 2024_11_07__16_23_04)
+
+        After copying to sessions directory, they may have .session extension.
 
         Args:
             directory: Directory to scan
-            pattern: Glob pattern for files
+            pattern: Glob pattern (default: ????_??_??__??_??_??*)
             recursive: If True, scan recursively
 
         Returns:
@@ -319,12 +324,12 @@ class FileTracker:
 
         return issues
 
-    def find_untracked_files(self, base_paths: list[Path], pattern: str = "*.session") -> list[Path]:
+    def find_untracked_files(self, base_paths: list[Path], pattern: str = "????_??_??__??_??_??*") -> list[Path]:
         """Find files in base_paths that are not in database.
 
         Args:
             base_paths: Directories to scan
-            pattern: File pattern
+            pattern: Glob pattern (default: ????_??_??__??_??_??*)
 
         Returns:
             List of untracked file paths

@@ -95,7 +95,7 @@ def main():
     adddir_parser = files_sub.add_parser('add-dir', help="Add all session files from directory")
     adddir_parser.add_argument('directory', type=Path, help="Directory path")
     adddir_parser.add_argument('--recursive', action='store_true', help="Scan recursively")
-    adddir_parser.add_argument('--pattern', default='*.session', help="File pattern (default: *.session)")
+    adddir_parser.add_argument('--pattern', default='????_??_??__??_??_??*', help="File pattern (default: ????_??_??__??_??_??*)")
     adddir_group = adddir_parser.add_mutually_exclusive_group()
     adddir_group.add_argument('--copy', action='store_true', default=True)
     adddir_group.add_argument('--move', action='store_true')
