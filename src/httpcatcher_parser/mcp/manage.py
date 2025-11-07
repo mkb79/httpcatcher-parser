@@ -734,3 +734,218 @@ class Manager:
         self.config[args.key] = args.value
         self._save_config()
         print(f"✓ Updated {args.key} = {args.value}")
+
+    # ====== SEARCH Commands ======
+    def cmd_search(self, args) -> None:
+        """Search requests with filters."""
+        from .query_engine import QueryEngine, SearchFilters, HeaderFilter, CookieFilter, MatchMode
+
+        if not self.db:
+            print("Database not initialized")
+            sys.exit(1)
+
+        # Build filters from args
+        filters = SearchFilters(
+            method=args.method,
+            url=args.url,
+            host=args.host,
+            path=args.path,
+            limit=args.limit,
+            offset=args.offset,
+            sort_desc=not args.asc
+        )
+
+        # Map sort options
+        sort_map = {
+            'time': 'req_timestamp',
+            'duration': 'duration_ms',
+            'status': 'status_code'
+        }
+        filters.sort_by = sort_map.get(args.sort, 'req_timestamp')
+
+        # Status filters
+        if args.status:
+            filters.status_codes = [args.status]
+        if args.status_min is not None:
+            filters.status_min = args.status_min
+        if args.status_max is not None:
+            filters.status_max = args.status_max
+
+        # Header filters
+        if args.header:
+            for h in args.header:
+                if ':' in h:
+                    key, value = h.split(':', 1)
+                    hf = HeaderFilter(
+                        key=key if key else None,
+                        value=value if value else None
+                    )
+                    filters.headers.append(hf)
+
+        # Cookie filters
+        if args.cookie:
+            for c in args.cookie:
+                if ':' in c:
+                    key, value = c.split(':', 1)
+                    cf = CookieFilter(
+                        key=key if key else None,
+                        value=value if value else None
+                    )
+                    filters.cookies.append(cf)
+
+        # Body search
+        if args.body:
+            filters.body_search = args.body
+
+        # Execute search
+        engine = QueryEngine(self.db)
+        results = engine.search_requests(filters)
+        total = engine.count_requests(filters)
+
+        if args.format == 'json':
+            import json
+            output = {
+                'total': total,
+                'count': len(results),
+                'offset': args.offset,
+                'limit': args.limit,
+                'results': results
+            }
+            print(json.dumps(output, indent=2))
+        else:
+            # Table format
+            if not results:
+                print(f"No results found (total: {total})")
+                return
+
+            print(f"\nFound {total} total requests, showing {len(results)}:\n")
+
+            # Print table header
+            print(f"{'ID':<8} {'Method':<8} {'Status':<8} {'Host':<30} {'Path':<40}")
+            print("=" * 100)
+
+            # Print rows
+            for r in results:
+                req_id = str(r['id'])
+                method = r['method'] or 'N/A'
+                status = str(r['status_code']) if r['status_code'] else 'N/A'
+                host = (r['host'] or 'N/A')[:29]
+                path = (r['path'] or 'N/A')[:39]
+
+                print(f"{req_id:<8} {method:<8} {status:<8} {host:<30} {path:<40}")
+
+            print(f"\nShowing {args.offset + 1}-{args.offset + len(results)} of {total}")
+
+    # ====== STATS Commands ======
+    def cmd_stats(self, args) -> None:
+        """Show statistics."""
+        from .query_engine import QueryEngine
+        from .file_tracker import FileTracker
+
+        if not self.db:
+            print("Database not initialized")
+            sys.exit(1)
+
+        # Resolve file ID if specified
+        file_id = None
+        if args.file:
+            tracker = FileTracker(self.db)
+            file_id = tracker.resolve_file_id(args.file)
+            if not file_id:
+                print(f"File not found: {args.file}")
+                sys.exit(1)
+
+        engine = QueryEngine(self.db)
+        stats = engine.get_stats(file_id)
+
+        if args.format == 'json':
+            import json
+            print(json.dumps(stats, indent=2))
+        else:
+            # Table format
+            print("\n=== HTTP Request Statistics ===\n")
+
+            print(f"Total Requests: {stats['total_requests']}\n")
+
+            # By method
+            if stats['by_method']:
+                print("Requests by Method:")
+                for method, count in stats['by_method'].items():
+                    print(f"  {method or 'N/A':<10} {count:>6}")
+                print()
+
+            # By status code
+            if stats['by_status']:
+                print("Top Status Codes:")
+                for status, count in list(stats['by_status'].items())[:10]:
+                    print(f"  {status or 'N/A':<10} {count:>6}")
+                print()
+
+            # By content category
+            if stats['by_content_category']:
+                print("Content Categories:")
+                for cat, count in stats['by_content_category'].items():
+                    print(f"  {cat or 'N/A':<15} {count:>6}")
+                print()
+
+            # Top hosts
+            if stats['top_hosts']:
+                print("Top Hosts:")
+                for host, count in stats['top_hosts'].items():
+                    host_display = (host or 'N/A')[:50]
+                    print(f"  {host_display:<50} {count:>6}")
+                print()
+
+            # Time range
+            if stats['time_range']['start']:
+                from datetime import datetime
+                start = datetime.fromtimestamp(stats['time_range']['start'])
+                end = datetime.fromtimestamp(stats['time_range']['end'])
+                print(f"Time Range: {start} to {end}\n")
+
+            # Duration stats
+            if stats['duration']['avg_ms'] is not None:
+                print("Duration Statistics:")
+                print(f"  Average: {stats['duration']['avg_ms']:.2f} ms")
+                print(f"  Min: {stats['duration']['min_ms']} ms")
+                print(f"  Max: {stats['duration']['max_ms']} ms")
+                print()
+
+            # Body sizes
+            print("Body Sizes:")
+            print(f"  Total Request: {stats['body_sizes']['total_req_bytes']:,} bytes")
+            print(f"  Total Response: {stats['body_sizes']['total_resp_bytes']:,} bytes")
+            print(f"  Avg Request: {stats['body_sizes']['avg_req_bytes']:.2f} bytes")
+            print(f"  Avg Response: {stats['body_sizes']['avg_resp_bytes']:.2f} bytes")
+
+    # ====== KEYS Commands ======
+    def cmd_keys(self, args) -> None:
+        """List available header/cookie keys."""
+        from .query_engine import QueryEngine
+
+        if not self.db:
+            print("Database not initialized")
+            sys.exit(1)
+
+        engine = QueryEngine(self.db)
+
+        if args.prefix:
+            # Autocomplete mode
+            keys = engine.autocomplete_key(args.prefix, args.type, args.limit)
+            print(f"\nKeys matching '{args.prefix}*':")
+            for key in keys:
+                print(f"  {key}")
+        else:
+            # List all mode
+            keys = engine.get_available_keys(args.type)
+            if args.limit:
+                keys = keys[:args.limit]
+
+            print(f"\nAvailable {args.type} keys:\n")
+            print(f"{'Key Name':<50} {'Usage Count':<15}")
+            print("=" * 65)
+
+            for k in keys:
+                print(f"{k['name']:<50} {k['usage_count']:<15}")
+
+            print(f"\nTotal: {len(keys)} keys")

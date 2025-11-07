@@ -120,6 +120,41 @@ def main():
     check_parser.add_argument('--fix', action='store_true', help="Automatically fix issues")
 
     # ========================================================================
+    # SEARCH Commands
+    # ========================================================================
+    search_parser = subparsers.add_parser('search', help="Search HTTP requests")
+    search_parser.add_argument('--method', help="Filter by HTTP method")
+    search_parser.add_argument('--url', help="Filter by URL (contains)")
+    search_parser.add_argument('--host', help="Filter by host (contains)")
+    search_parser.add_argument('--path', help="Filter by path (contains)")
+    search_parser.add_argument('--status', type=int, help="Filter by status code")
+    search_parser.add_argument('--status-min', type=int, help="Minimum status code")
+    search_parser.add_argument('--status-max', type=int, help="Maximum status code")
+    search_parser.add_argument('--header', action='append', help="Header filter (format: key:value or :value or key:)")
+    search_parser.add_argument('--cookie', action='append', help="Cookie filter (format: key:value or :value or key:)")
+    search_parser.add_argument('--body', help="Search in body content")
+    search_parser.add_argument('--limit', type=int, default=100, help="Max results (default: 100)")
+    search_parser.add_argument('--offset', type=int, default=0, help="Skip N results")
+    search_parser.add_argument('--format', choices=['table', 'json'], default='table', help="Output format")
+    search_parser.add_argument('--sort', choices=['time', 'duration', 'status'], default='time', help="Sort by")
+    search_parser.add_argument('--asc', action='store_true', help="Sort ascending (default: descending)")
+
+    # ========================================================================
+    # STATS Command
+    # ========================================================================
+    stats_parser = subparsers.add_parser('stats', help="Show statistics")
+    stats_parser.add_argument('--file', help="Filter by file ID or filename")
+    stats_parser.add_argument('--format', choices=['table', 'json'], default='table', help="Output format")
+
+    # ========================================================================
+    # KEYS Command
+    # ========================================================================
+    keys_parser = subparsers.add_parser('keys', help="List available header/cookie keys")
+    keys_parser.add_argument('type', choices=['header', 'cookie'], help="Key type")
+    keys_parser.add_argument('--prefix', help="Filter by prefix (autocomplete)")
+    keys_parser.add_argument('--limit', type=int, default=50, help="Max results")
+
+    # ========================================================================
     # CONFIG Commands
     # ========================================================================
     config_parser = subparsers.add_parser('config', help="Configuration management")
@@ -178,6 +213,15 @@ def main():
                 manager.cmd_files_reindex(args)
             elif args.files_command == 'check':
                 manager.cmd_files_check(args)
+
+        elif args.command == 'search':
+            manager.cmd_search(args)
+
+        elif args.command == 'stats':
+            manager.cmd_stats(args)
+
+        elif args.command == 'keys':
+            manager.cmd_keys(args)
 
         elif args.command == 'config':
             if args.config_command == 'get':
