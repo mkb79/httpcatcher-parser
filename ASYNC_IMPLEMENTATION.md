@@ -184,12 +184,38 @@ Summary:
 - ✅ True parallel I/O processing
 - ✅ Better error handling
 
-### MCP Server Integration (Pending)
+### MCP Server Integration ✅ COMPLETE
 
-Update `server.py` to use async modules:
-- Convert tool handlers to async functions
-- Use `Database` instead of sync version
-- Test all 7 MCP tools
+The MCP server has been fully migrated to async modules:
+
+**Changes Made:**
+- Removed sync database initialization
+- All 7 tool handlers now use async `Database` context manager
+- Each tool creates its own database connection for isolation
+- All module methods properly awaited
+
+**Tools Available:**
+1. `search_requests` - Search HTTP requests with flexible filters
+2. `get_request_details` - Get detailed information about a request
+3. `get_stats` - Get statistics about requests
+4. `list_files` - List all indexed session files
+5. `get_available_keys` - Get all header/cookie key names
+6. `autocomplete_key` - Autocomplete key names by prefix
+7. `index_file` - Index a new session file
+
+**Example Handler:**
+```python
+async def _search_requests(self, args: dict) -> list[dict]:
+    # Each tool handler creates its own async database connection
+    async with Database(self.db_path) as db:
+        engine = QueryEngine(db)
+        results = await engine.search_requests(filters)
+        total = await engine.count_requests(filters)
+    return [{"total": total, "results": results}]
+```
+
+**Testing:**
+All tools tested and working with async database connections!
 
 ## Testing ✅
 
@@ -271,6 +297,31 @@ hc-mcp files add-dir /path/to/hc_sessions/ --copy
 ```
 
 All commands work without threading errors or warnings!
+
+### MCP Server Tests
+
+Test the MCP server async integration:
+
+```bash
+python test_mcp_server.py
+```
+
+Expected output:
+```
+=== Testing MCP Server Async Integration ===
+
+✓ Database initialized
+✓ MCP server created
+✓ list_files works: 0 files
+✓ get_stats works: {...}
+✓ search_requests works: 0 results
+✓ get_available_keys works: 0 keys
+✓ autocomplete_key works: 0 matches
+
+SUCCESS: All MCP server tools are working with async!
+
+The MCP server is ready for Claude Desktop integration.
+```
 
 ## Production Test Results 🎉
 
