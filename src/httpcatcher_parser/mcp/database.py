@@ -199,7 +199,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS body_search USING fts5(
 
 CREATE TRIGGER IF NOT EXISTS requests_ai AFTER INSERT ON requests BEGIN
     INSERT INTO body_search(rowid, request_id, req_body_preview, resp_body_preview)
-    VALUES (new.id, new.id, new.req_body_preview, new.resp_body_preview);
+    VALUES (new.id, new.original_request_id, new.req_body_preview, new.resp_body_preview);
 END;
 
 CREATE TRIGGER IF NOT EXISTS requests_ad AFTER DELETE ON requests BEGIN
@@ -291,6 +291,14 @@ class Database:
 
     def reset(self) -> None:
         """Reset database (delete all data, keep schema)."""
+        # Drop FTS5 tables and triggers first (they may reference old schema)
+        try:
+            self.conn.execute("DROP TRIGGER IF EXISTS requests_ai")
+            self.conn.execute("DROP TRIGGER IF EXISTS requests_ad")
+            self.conn.execute("DROP TABLE IF EXISTS body_search")
+        except Exception:
+            pass
+
         # Get all table names except metadata
         cursor = self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('metadata', 'sqlite_sequence')"
@@ -302,6 +310,12 @@ class Database:
             self.conn.execute(f"DELETE FROM {table}")
 
         self.conn.commit()
+
+        # Recreate FTS5 if it was enabled
+        try:
+            self.conn.executescript(FTS_SQL)
+        except Exception:
+            pass  # FTS5 not available or not needed
 
     def vacuum(self) -> None:
         """Optimize database (VACUUM)."""
