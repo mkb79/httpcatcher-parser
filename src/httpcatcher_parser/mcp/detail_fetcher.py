@@ -1,15 +1,16 @@
-"""Request detail fetcher with lazy body loading and decompression."""
+"""Async request detail fetcher with lazy body loading and decompression."""
 
 from __future__ import annotations
 
 import brotli
 import gzip
 import json
-import mmap
 import zlib
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+import aiofiles
 
 from .database import Database
 
@@ -25,7 +26,7 @@ class DetailLevel(Enum):
 
 
 class DetailFetcher:
-    """Fetch request details with lazy body loading."""
+    """Fetch request details with lazy body loading (async version)."""
 
     def __init__(self, db: Database):
         """Initialize detail fetcher.
@@ -35,7 +36,7 @@ class DetailFetcher:
         """
         self.db = db
 
-    def get_request_details(
+    async def get_request_details(
         self,
         request_id: int,
         detail_level: DetailLevel = DetailLevel.FULL,
@@ -52,7 +53,8 @@ class DetailFetcher:
             Dict with request details or None if not found
         """
         # Fetch basic request data
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             """
             SELECT
                 r.id, r.file_id, r.method, r.url, r.host, r.path, r.status_code,
@@ -71,7 +73,7 @@ class DetailFetcher:
             """,
             (request_id,)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if not row:
             return None
@@ -126,27 +128,27 @@ class DetailFetcher:
 
         if detail_level in (DetailLevel.FULL, DetailLevel.REQUEST_ONLY):
             if row[21] is not None and row[23] is not None:  # req_body_offset, req_body_length
-                body_data = self._load_body_from_file(file_path, row[21], row[23])
+                body_data = await self._load_body_from_file(file_path, row[21], row[23])
                 if body_data and decompress_bodies and row[12]:  # req_content_type
                     body_data = self._try_decompress(body_data, row[12])
                 details['request']['body'] = body_data
 
         if detail_level in (DetailLevel.FULL, DetailLevel.RESPONSE_ONLY):
             if row[22] is not None and row[24] is not None:  # resp_body_offset, resp_body_length
-                body_data = self._load_body_from_file(file_path, row[22], row[24])
+                body_data = await self._load_body_from_file(file_path, row[22], row[24])
                 if body_data and decompress_bodies and row[13]:  # resp_content_type
                     body_data = self._try_decompress(body_data, row[13])
                 details['response']['body'] = body_data
 
         return details
 
-    def _load_body_from_file(
+    async def _load_body_from_file(
         self,
         file_path: Path,
         offset: int,
         length: int
     ) -> Optional[bytes]:
-        """Load body data from file using mmap for efficiency.
+        """Load body data from file using async file operations.
 
         Args:
             file_path: Path to session file
@@ -160,18 +162,11 @@ class DetailFetcher:
             return None
 
         try:
-            with open(file_path, 'rb') as f:
-                # Use mmap for efficient random access
-                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                    return mm[offset:offset + length]
+            async with aiofiles.open(file_path, 'rb') as f:
+                await f.seek(offset)
+                return await f.read(length)
         except Exception:
-            # Fallback to regular read
-            try:
-                with open(file_path, 'rb') as f:
-                    f.seek(offset)
-                    return f.read(length)
-            except Exception:
-                return None
+            return None
 
     def _try_decompress(self, data: bytes, content_type: str) -> bytes:
         """Try to decompress body based on content encoding.
@@ -237,7 +232,7 @@ class DetailFetcher:
 
         return None
 
-    def get_request_body(
+    async def get_request_body(
         self,
         request_id: int,
         request: bool = True,
@@ -260,7 +255,8 @@ class DetailFetcher:
         preview_col = "req_body_preview" if request else "resp_body_preview"
         ct_col = "req_content_type" if request else "resp_content_type"
 
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             f"""
             SELECT
                 sf.file_path, r.{offset_col}, r.{length_col},
@@ -271,7 +267,7 @@ class DetailFetcher:
             """,
             (request_id,)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if not row:
             return None
@@ -287,7 +283,7 @@ class DetailFetcher:
             return preview
 
         # Load from file
-        body_data = self._load_body_from_file(file_path, offset, length)
+        body_data = await self._load_body_from_file(file_path, offset, length)
 
         if not body_data:
             return preview

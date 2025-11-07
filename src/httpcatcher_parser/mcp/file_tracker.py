@@ -1,17 +1,18 @@
-"""File tracking and change detection for session files."""
+"""Async file tracking and change detection for session files."""
 
 from __future__ import annotations
 
 import hashlib
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
+
+import aiofiles
 
 from .database import Database
 
 
-def compute_file_hash(file_path: Path) -> str:
+async def compute_file_hash(file_path: Path) -> str:
     """Compute SHA256 hash of a file for change detection.
 
     Args:
@@ -24,14 +25,14 @@ def compute_file_hash(file_path: Path) -> str:
         Reads file in chunks for memory efficiency.
     """
     sha256 = hashlib.sha256()
-    with open(file_path, 'rb') as f:
-        while chunk := f.read(8192):
+    async with aiofiles.open(file_path, 'rb') as f:
+        while chunk := await f.read(8192):
             sha256.update(chunk)
     return sha256.hexdigest()
 
 
 class FileTracker:
-    """Track session files in database."""
+    """Track session files in database (async version)."""
 
     def __init__(self, db: Database):
         """Initialize file tracker.
@@ -41,7 +42,7 @@ class FileTracker:
         """
         self.db = db
 
-    def add_file(self, file_path: Path) -> int:
+    async def add_file(self, file_path: Path) -> int:
         """Add or update file in tracking table.
 
         Args:
@@ -57,17 +58,18 @@ class FileTracker:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         # Compute file metadata
-        file_hash = compute_file_hash(file_path)
+        file_hash = await compute_file_hash(file_path)
         file_size = file_path.stat().st_size
         last_modified = int(file_path.stat().st_mtime)
         indexed_at = int(time.time())
 
         # Check if file already exists
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             "SELECT id, file_hash FROM session_files WHERE file_path = ?",
             (str(file_path),)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if row:
             file_id = row[0]
@@ -75,7 +77,7 @@ class FileTracker:
 
             # Update if hash changed
             if existing_hash != file_hash:
-                self.db.conn.execute(
+                await conn.execute(
                     """
                     UPDATE session_files
                     SET file_hash = ?, file_size = ?, last_modified = ?,
@@ -84,10 +86,10 @@ class FileTracker:
                     """,
                     (file_hash, file_size, last_modified, indexed_at, file_id)
                 )
-                self.db.conn.commit()
+                await conn.commit()
         else:
             # Insert new file
-            cursor = self.db.conn.execute(
+            cursor = await conn.execute(
                 """
                 INSERT INTO session_files
                 (file_path, file_hash, file_size, last_modified, indexed_at, status)
@@ -96,11 +98,11 @@ class FileTracker:
                 (str(file_path), file_hash, file_size, last_modified, indexed_at)
             )
             file_id = cursor.lastrowid
-            self.db.conn.commit()
+            await conn.commit()
 
         return file_id
 
-    def find_duplicate_by_hash(self, file_hash: str) -> Optional[dict]:
+    async def find_duplicate_by_hash(self, file_hash: str) -> Optional[dict]:
         """Check if a file with the same hash already exists.
 
         Args:
@@ -109,7 +111,8 @@ class FileTracker:
         Returns:
             File info dict if duplicate found, None otherwise
         """
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             """
             SELECT id, file_path, file_size, indexed_at
             FROM session_files
@@ -117,7 +120,7 @@ class FileTracker:
             """,
             (file_hash,)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if row:
             return {
@@ -129,7 +132,7 @@ class FileTracker:
             }
         return None
 
-    def remove_file(self, file_id: int) -> int:
+    async def remove_file(self, file_id: int) -> int:
         """Remove file from tracking (cascade deletes all requests).
 
         Args:
@@ -138,23 +141,26 @@ class FileTracker:
         Returns:
             Number of requests deleted
         """
+        conn = await self.db.connect()
+
         # Count requests before deleting
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             "SELECT COUNT(*) FROM requests WHERE file_id = ?",
             (file_id,)
         )
-        request_count = cursor.fetchone()[0]
+        row = await cursor.fetchone()
+        request_count = row[0]
 
         # Delete file (cascade will handle requests)
-        self.db.conn.execute(
+        await conn.execute(
             "DELETE FROM session_files WHERE id = ?",
             (file_id,)
         )
-        self.db.conn.commit()
+        await conn.commit()
 
         return request_count
 
-    def get_file_info(self, file_id: int) -> Optional[dict]:
+    async def get_file_info(self, file_id: int) -> Optional[dict]:
         """Get file information.
 
         Args:
@@ -163,7 +169,8 @@ class FileTracker:
         Returns:
             Dict with file information or None if not found
         """
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             """
             SELECT
                 sf.id, sf.file_path, sf.file_hash, sf.file_size,
@@ -176,7 +183,7 @@ class FileTracker:
             """,
             (file_id,)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if not row:
             return None
@@ -193,13 +200,14 @@ class FileTracker:
             'request_count': row[7],
         }
 
-    def list_files(self) -> list[dict]:
+    async def list_files(self) -> list[dict]:
         """List all tracked files.
 
         Returns:
             List of file information dicts
         """
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             """
             SELECT
                 sf.id, sf.file_path, sf.file_hash, sf.file_size,
@@ -214,7 +222,7 @@ class FileTracker:
         )
 
         files = []
-        for row in cursor.fetchall():
+        async for row in cursor:
             files.append({
                 'id': row[0],
                 'file_path': row[1],
@@ -229,7 +237,7 @@ class FileTracker:
 
         return files
 
-    def resolve_file_id(self, identifier: str | int) -> Optional[int]:
+    async def resolve_file_id(self, identifier: str | int) -> Optional[int]:
         """Resolve file identifier to file ID.
 
         Args:
@@ -238,27 +246,29 @@ class FileTracker:
         Returns:
             File ID or None if not found
         """
+        conn = await self.db.connect()
+
         # Try as integer ID first
         try:
             file_id = int(identifier)
-            cursor = self.db.conn.execute(
+            cursor = await conn.execute(
                 "SELECT id FROM session_files WHERE id = ?",
                 (file_id,)
             )
-            row = cursor.fetchone()
+            row = await cursor.fetchone()
             return row[0] if row else None
         except ValueError:
             pass
 
         # Try as filename
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             "SELECT id FROM session_files WHERE file_path LIKE ?",
             (f"%{identifier}",)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
         return row[0] if row else None
 
-    def file_needs_reindex(self, file_path: Path) -> bool:
+    async def file_needs_reindex(self, file_path: Path) -> bool:
         """Check if file needs reindexing based on hash.
 
         Args:
@@ -270,17 +280,18 @@ class FileTracker:
         if not file_path.exists():
             return False
 
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             "SELECT file_hash FROM session_files WHERE file_path = ?",
             (str(file_path),)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if not row:
             return True  # Not tracked
 
         stored_hash = row[0]
-        current_hash = compute_file_hash(file_path)
+        current_hash = await compute_file_hash(file_path)
 
         return stored_hash != current_hash
 
@@ -304,13 +315,17 @@ class FileTracker:
 
         Returns:
             List of file paths matching pattern
+
+        Note:
+            This method is synchronous as pathlib's glob operations are already
+            efficient and non-blocking for directory scanning.
         """
         if recursive:
             return list(directory.rglob(pattern))
         else:
             return list(directory.glob(pattern))
 
-    def check_consistency(self) -> dict[str, list]:
+    async def check_consistency(self) -> dict[str, list]:
         """Check consistency between database and filesystem.
 
         Returns:
@@ -322,26 +337,30 @@ class FileTracker:
             'modified': []
         }
 
+        conn = await self.db.connect()
+
         # Check orphaned (in DB but file missing)
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             "SELECT id, file_path FROM session_files WHERE status = 'active'"
         )
-        for row in cursor.fetchall():
+        rows = await cursor.fetchall()
+        for row in rows:
             file_id, file_path = row[0], row[1]
             if not Path(file_path).exists():
-                file_info = self.get_file_info(file_id)
+                file_info = await self.get_file_info(file_id)
                 if file_info:
                     issues['orphaned'].append(file_info)
 
         # Check modified (hash mismatch)
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             "SELECT id, file_path, file_hash FROM session_files WHERE status = 'active'"
         )
-        for row in cursor.fetchall():
+        rows = await cursor.fetchall()
+        for row in rows:
             file_id, file_path, db_hash = row[0], row[1], row[2]
             path = Path(file_path)
             if path.exists():
-                current_hash = compute_file_hash(path)
+                current_hash = await compute_file_hash(path)
                 if current_hash != db_hash:
                     issues['modified'].append({
                         'id': file_id,
@@ -353,7 +372,7 @@ class FileTracker:
 
         return issues
 
-    def find_untracked_files(self, base_paths: list[Path], pattern: str = "????_??_??__??_??_??*") -> list[Path]:
+    async def find_untracked_files(self, base_paths: list[Path], pattern: str = "????_??_??__??_??_??*") -> list[Path]:
         """Find files in base_paths that are not in database.
 
         Args:
@@ -363,11 +382,13 @@ class FileTracker:
         Returns:
             List of untracked file paths
         """
+        conn = await self.db.connect()
+
         # Get all tracked file paths
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             "SELECT file_path FROM session_files WHERE status = 'active'"
         )
-        tracked = set(row[0] for row in cursor.fetchall())
+        tracked = set(row[0] async for row in cursor)
 
         # Scan directories
         untracked = []

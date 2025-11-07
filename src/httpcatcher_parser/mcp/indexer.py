@@ -1,4 +1,4 @@
-"""Session file indexer - parses files and populates database."""
+"""Async session file indexer - parses files and populates database."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from ..hc_parser import (
 )
 from .content_analyzer import categorize_content_type, parse_content_type
 from .database import Database
-from .file_tracker import FileTracker
 
 
 @dataclass
@@ -51,32 +50,37 @@ class RequestAggregation:
 
 
 class KeyIndexer:
-    """Manages normalized key lookup with caching."""
+    """Manages normalized key lookup with caching (async version)."""
 
     def __init__(self, db: Database, prefetch: bool = True):
         self.db = db
         self._header_cache: dict[str, int] = {}
         self._cookie_cache: dict[str, int] = {}
+        self._prefetch_done = False
+        self._should_prefetch = prefetch
 
-        # Prefetch all existing keys for faster lookups
-        if prefetch:
-            self._prefetch_keys()
+    async def ensure_prefetch(self):
+        """Ensure prefetch is done (call once at start)."""
+        if self._should_prefetch and not self._prefetch_done:
+            await self._prefetch_keys()
+            self._prefetch_done = True
 
-    def get_or_create_header_key(self, name: str) -> int:
+    async def get_or_create_header_key(self, name: str) -> int:
         """Get or create header key ID."""
         if name in self._header_cache:
             return self._header_cache[name]
 
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             "SELECT id FROM header_keys WHERE name = ?",
             (name,)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if row:
             key_id = row[0]
         else:
-            cursor = self.db.conn.execute(
+            cursor = await conn.execute(
                 "INSERT INTO header_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
                 (name, name.lower())
             )
@@ -85,21 +89,22 @@ class KeyIndexer:
         self._header_cache[name] = key_id
         return key_id
 
-    def get_or_create_cookie_key(self, name: str) -> int:
+    async def get_or_create_cookie_key(self, name: str) -> int:
         """Get or create cookie key ID."""
         if name in self._cookie_cache:
             return self._cookie_cache[name]
 
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             "SELECT id FROM cookie_keys WHERE name = ?",
             (name,)
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
 
         if row:
             key_id = row[0]
         else:
-            cursor = self.db.conn.execute(
+            cursor = await conn.execute(
                 "INSERT INTO cookie_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
                 (name, name.lower())
             )
@@ -108,16 +113,20 @@ class KeyIndexer:
         self._cookie_cache[name] = key_id
         return key_id
 
-    def _prefetch_keys(self):
+    async def _prefetch_keys(self):
         """Prefetch all existing keys into cache for faster lookups."""
+        conn = await self.db.connect()
+
         # Prefetch header keys
-        cursor = self.db.conn.execute("SELECT name, id FROM header_keys")
-        for name, key_id in cursor.fetchall():
+        cursor = await conn.execute("SELECT name, id FROM header_keys")
+        async for row in cursor:
+            name, key_id = row
             self._header_cache[name] = key_id
 
         # Prefetch cookie keys
-        cursor = self.db.conn.execute("SELECT name, id FROM cookie_keys")
-        for name, key_id in cursor.fetchall():
+        cursor = await conn.execute("SELECT name, id FROM cookie_keys")
+        async for row in cursor:
+            name, key_id = row
             self._cookie_cache[name] = key_id
 
 
@@ -231,14 +240,13 @@ def _parse_status_line(line: Optional[str]) -> Optional[int]:
 
 
 class Indexer:
-    """Indexes session files into database."""
+    """Indexes session files into database (async version)."""
 
     def __init__(self, db: Database, scanner: HttpCatcherScanner):
         self.db = db
         self.scanner = scanner
-        self.file_tracker = FileTracker(db)
 
-    def index_file(self, file_path: Path, force_reindex: bool = False) -> dict:
+    async def index_file(self, file_path: Path, force_reindex: bool = False) -> dict:
         """Index a session file.
 
         Args:
@@ -251,26 +259,32 @@ class Indexer:
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
+        # Import FileTracker here to avoid circular import
+        from .file_tracker import FileTracker
+        file_tracker = FileTracker(self.db)
+
         # Check if reindex needed
-        if not force_reindex and not self.file_tracker.file_needs_reindex(file_path):
+        if not force_reindex and not await file_tracker.file_needs_reindex(file_path):
+            file_id = await file_tracker.resolve_file_id(str(file_path))
             return {
                 'indexed': False,
                 'requests_added': 0,
-                'file_id': self.file_tracker.resolve_file_id(str(file_path)),
+                'file_id': file_id,
                 'reason': 'unchanged'
             }
 
         # Add/update file in tracker
-        file_id = self.file_tracker.add_file(file_path)
+        file_id = await file_tracker.add_file(file_path)
 
         # Delete old requests if exists
-        self.db.conn.execute("DELETE FROM requests WHERE file_id = ?", (file_id,))
+        conn = await self.db.connect()
+        await conn.execute("DELETE FROM requests WHERE file_id = ?", (file_id,))
 
         # Parse and aggregate requests
         aggregations = self._parse_file(file_path)
 
         # Batch insert into database
-        requests_added = self._bulk_insert(file_id, aggregations)
+        requests_added = await self._bulk_insert(file_id, aggregations)
 
         return {
             'indexed': True,
@@ -334,12 +348,13 @@ class Indexer:
 
         return aggregations
 
-    def _bulk_insert(self, file_id: int, aggregations: dict[int, RequestAggregation]) -> int:
+    async def _bulk_insert(self, file_id: int, aggregations: dict[int, RequestAggregation]) -> int:
         """Bulk insert aggregated data into database."""
         if not aggregations:
             return 0
 
         key_indexer = KeyIndexer(self.db)
+        await key_indexer.ensure_prefetch()
 
         # Prepare batch data for requests
         requests_batch = []
@@ -396,7 +411,8 @@ class Indexer:
             cookies_data[req_id] = (req_cookies, resp_cookies_list)
 
         # Insert requests - id will be auto-generated
-        self.db.conn.executemany(
+        conn = await self.db.connect()
+        await conn.executemany(
             """
             INSERT INTO requests (
                 file_id, original_request_id, method, url, host, path, status_code,
@@ -414,11 +430,11 @@ class Indexer:
         )
 
         # Get the mapping of original_request_id -> new db id
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             "SELECT id, original_request_id FROM requests WHERE file_id = ?",
             (file_id,)
         )
-        id_mapping = {orig_id: db_id for db_id, orig_id in cursor.fetchall()}
+        id_mapping = {orig_id: db_id async for db_id, orig_id in cursor}
 
         # Now prepare headers/cookies batches with correct db IDs
         req_headers_batch = []
@@ -433,11 +449,11 @@ class Indexer:
 
             # Insert headers with normalized keys
             for name, value in req_headers:
-                key_id = key_indexer.get_or_create_header_key(name)
+                key_id = await key_indexer.get_or_create_header_key(name)
                 req_headers_batch.append((db_id, key_id, value))
 
             for name, value in resp_headers:
-                key_id = key_indexer.get_or_create_header_key(name)
+                key_id = await key_indexer.get_or_create_header_key(name)
                 resp_headers_batch.append((db_id, key_id, value))
 
         for orig_req_id, (req_cookies, resp_cookies_list) in cookies_data.items():
@@ -447,11 +463,11 @@ class Indexer:
 
             # Insert cookies with normalized keys
             for name, value in req_cookies:
-                key_id = key_indexer.get_or_create_cookie_key(name)
+                key_id = await key_indexer.get_or_create_cookie_key(name)
                 req_cookies_batch.append((db_id, key_id, value))
 
             for cookie in resp_cookies_list:
-                key_id = key_indexer.get_or_create_cookie_key(cookie['name'])
+                key_id = await key_indexer.get_or_create_cookie_key(cookie['name'])
                 resp_cookies_batch.append((
                     db_id, key_id, cookie['value'],
                     cookie.get('domain'), cookie.get('path'), cookie.get('expires'),
@@ -461,25 +477,25 @@ class Indexer:
 
         # Insert headers and cookies
         if req_headers_batch:
-            self.db.conn.executemany(
+            await conn.executemany(
                 "INSERT INTO request_headers (request_id, key_id, value) VALUES (?, ?, ?)",
                 req_headers_batch
             )
 
         if resp_headers_batch:
-            self.db.conn.executemany(
+            await conn.executemany(
                 "INSERT INTO response_headers (request_id, key_id, value) VALUES (?, ?, ?)",
                 resp_headers_batch
             )
 
         if req_cookies_batch:
-            self.db.conn.executemany(
+            await conn.executemany(
                 "INSERT INTO request_cookies (request_id, key_id, value) VALUES (?, ?, ?)",
                 req_cookies_batch
             )
 
         if resp_cookies_batch:
-            self.db.conn.executemany(
+            await conn.executemany(
                 """
                 INSERT INTO response_cookies
                 (request_id, key_id, value, domain, path, expires, http_only, secure, same_site)
@@ -488,6 +504,6 @@ class Indexer:
                 resp_cookies_batch
             )
 
-        self.db.conn.commit()
+        await conn.commit()
 
         return len(requests_batch)

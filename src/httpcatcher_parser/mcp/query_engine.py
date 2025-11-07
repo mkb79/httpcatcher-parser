@@ -1,4 +1,4 @@
-"""Query engine for searching HTTP requests with flexible filters."""
+"""Async query engine for searching HTTP requests with flexible filters."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ class SearchFilters:
 
 
 class QueryEngine:
-    """Build and execute search queries."""
+    """Build and execute search queries (async version)."""
 
     def __init__(self, db: Database):
         """Initialize query engine.
@@ -105,7 +105,7 @@ class QueryEngine:
         """
         self.db = db
 
-    def search_requests(self, filters: SearchFilters) -> list[dict]:
+    async def search_requests(self, filters: SearchFilters) -> list[dict]:
         """Search requests with filters.
 
         Args:
@@ -116,10 +116,11 @@ class QueryEngine:
         """
         query, params = self._build_query(filters)
 
-        cursor = self.db.conn.execute(query, params)
+        conn = await self.db.connect()
+        cursor = await conn.execute(query, params)
         results = []
 
-        for row in cursor.fetchall():
+        async for row in cursor:
             results.append({
                 'id': row[0],
                 'file_id': row[1],
@@ -140,7 +141,7 @@ class QueryEngine:
 
         return results
 
-    def count_requests(self, filters: SearchFilters) -> int:
+    async def count_requests(self, filters: SearchFilters) -> int:
         """Count requests matching filters.
 
         Args:
@@ -151,8 +152,10 @@ class QueryEngine:
         """
         # Build count query (similar to search but with COUNT)
         query, params = self._build_query(filters, count_only=True)
-        cursor = self.db.conn.execute(query, params)
-        return cursor.fetchone()[0]
+        conn = await self.db.connect()
+        cursor = await conn.execute(query, params)
+        row = await cursor.fetchone()
+        return row[0]
 
     def _build_query(self, filters: SearchFilters, count_only: bool = False) -> tuple[str, list]:
         """Build SQL query from filters.
@@ -381,7 +384,7 @@ class QueryEngine:
         if body_conditions:
             where_clauses.append(f"({' OR '.join(body_conditions)})")
 
-    def get_stats(self, file_id: Optional[int] = None) -> dict:
+    async def get_stats(self, file_id: Optional[int] = None) -> dict:
         """Get database statistics.
 
         Args:
@@ -390,20 +393,22 @@ class QueryEngine:
         Returns:
             Dict with statistics
         """
+        conn = await self.db.connect()
         where = "WHERE r.file_id = ?" if file_id else ""
         params = [file_id] if file_id else []
 
         stats = {}
 
         # Total requests
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"SELECT COUNT(*) FROM requests r {where}",
             params
         )
-        stats['total_requests'] = cursor.fetchone()[0]
+        row = await cursor.fetchone()
+        stats['total_requests'] = row[0]
 
         # Requests by method
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT method, COUNT(*) as count
             FROM requests r {where}
@@ -412,10 +417,10 @@ class QueryEngine:
             """,
             params
         )
-        stats['by_method'] = {row[0]: row[1] for row in cursor.fetchall()}
+        stats['by_method'] = {row[0]: row[1] async for row in cursor}
 
         # Requests by status code
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT status_code, COUNT(*) as count
             FROM requests r {where}
@@ -425,10 +430,10 @@ class QueryEngine:
             """,
             params
         )
-        stats['by_status'] = {row[0]: row[1] for row in cursor.fetchall()}
+        stats['by_status'] = {row[0]: row[1] async for row in cursor}
 
         # Requests by content category
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT resp_content_category, COUNT(*) as count
             FROM requests r {where}
@@ -437,10 +442,10 @@ class QueryEngine:
             """,
             params
         )
-        stats['by_content_category'] = {row[0]: row[1] for row in cursor.fetchall()}
+        stats['by_content_category'] = {row[0]: row[1] async for row in cursor}
 
         # Top hosts
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT host, COUNT(*) as count
             FROM requests r {where}
@@ -450,24 +455,24 @@ class QueryEngine:
             """,
             params
         )
-        stats['top_hosts'] = {row[0]: row[1] for row in cursor.fetchall()}
+        stats['top_hosts'] = {row[0]: row[1] async for row in cursor}
 
         # Time range
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT MIN(req_timestamp), MAX(req_timestamp)
             FROM requests r {where}
             """,
             params
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
         stats['time_range'] = {
             'start': row[0],
             'end': row[1]
         }
 
         # Average duration
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT AVG(duration_ms), MIN(duration_ms), MAX(duration_ms)
             FROM requests r
@@ -475,7 +480,7 @@ class QueryEngine:
             """,
             params
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
         stats['duration'] = {
             'avg_ms': row[0],
             'min_ms': row[1],
@@ -483,7 +488,7 @@ class QueryEngine:
         }
 
         # Body sizes
-        cursor = self.db.conn.execute(
+        cursor = await conn.execute(
             f"""
             SELECT
                 SUM(req_body_size), SUM(resp_body_size),
@@ -492,7 +497,7 @@ class QueryEngine:
             """,
             params
         )
-        row = cursor.fetchone()
+        row = await cursor.fetchone()
         stats['body_sizes'] = {
             'total_req_bytes': row[0] or 0,
             'total_resp_bytes': row[1] or 0,
@@ -502,7 +507,7 @@ class QueryEngine:
 
         return stats
 
-    def get_available_keys(self, key_type: str = "header") -> list[dict]:
+    async def get_available_keys(self, key_type: str = "header") -> list[dict]:
         """Get all available header or cookie keys.
 
         Args:
@@ -513,7 +518,8 @@ class QueryEngine:
         """
         table = "header_keys" if key_type == "header" else "cookie_keys"
 
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             f"""
             SELECT name, usage_count
             FROM {table}
@@ -523,10 +529,10 @@ class QueryEngine:
 
         return [
             {'name': row[0], 'usage_count': row[1]}
-            for row in cursor.fetchall()
+            async for row in cursor
         ]
 
-    def autocomplete_key(self, prefix: str, key_type: str = "header", limit: int = 20) -> list[str]:
+    async def autocomplete_key(self, prefix: str, key_type: str = "header", limit: int = 20) -> list[str]:
         """Autocomplete header or cookie key names.
 
         Args:
@@ -539,7 +545,8 @@ class QueryEngine:
         """
         table = "header_keys" if key_type == "header" else "cookie_keys"
 
-        cursor = self.db.conn.execute(
+        conn = await self.db.connect()
+        cursor = await conn.execute(
             f"""
             SELECT name
             FROM {table}
@@ -550,4 +557,4 @@ class QueryEngine:
             (f"{prefix.lower()}%", limit)
         )
 
-        return [row[0] for row in cursor.fetchall()]
+        return [row[0] async for row in cursor]
