@@ -849,8 +849,9 @@ class Manager:
         """Search requests with filters."""
         from .query_engine import QueryEngine, SearchFilters, HeaderFilter, CookieFilter, MatchMode
 
-        if not self.db:
-            print("Database not initialized")
+        if not self.db_path.exists():
+            print("Error: Database not initialized")
+            print("Run 'hc-mcp init' first")
             sys.exit(1)
 
         # Build filters from args
@@ -906,10 +907,15 @@ class Manager:
         if args.body:
             filters.body_search = args.body
 
-        # Execute search
-        engine = QueryEngine(self.db)
-        results = engine.search_requests(filters)
-        total = engine.count_requests(filters)
+        # Execute search with async
+        async def do_search():
+            async with Database(self.db_path) as db:
+                engine = QueryEngine(db)
+                results = await engine.search_requests(filters)
+                total = await engine.count_requests(filters)
+                return results, total
+
+        results, total = asyncio.run(do_search())
 
         if args.format == 'json':
             import json
@@ -951,21 +957,28 @@ class Manager:
         from .query_engine import QueryEngine
         from .file_tracker import FileTracker
 
-        if not self.db:
-            print("Database not initialized")
+        if not self.db_path.exists():
+            print("Error: Database not initialized")
+            print("Run 'hc-mcp init' first")
             sys.exit(1)
 
-        # Resolve file ID if specified
-        file_id = None
-        if args.file:
-            tracker = FileTracker(self.db)
-            file_id = tracker.resolve_file_id(args.file)
-            if not file_id:
-                print(f"File not found: {args.file}")
-                sys.exit(1)
+        # Execute with async
+        async def do_stats():
+            async with Database(self.db_path) as db:
+                # Resolve file ID if specified
+                file_id = None
+                if args.file:
+                    tracker = FileTracker(db)
+                    file_id = await tracker.resolve_file_id(args.file)
+                    if not file_id:
+                        print(f"File not found: {args.file}")
+                        sys.exit(1)
 
-        engine = QueryEngine(self.db)
-        stats = engine.get_stats(file_id)
+                engine = QueryEngine(db)
+                stats = await engine.get_stats(file_id)
+                return stats
+
+        stats = asyncio.run(do_stats())
 
         if args.format == 'json':
             import json
@@ -1032,24 +1045,33 @@ class Manager:
         """List available header/cookie keys."""
         from .query_engine import QueryEngine
 
-        if not self.db:
-            print("Database not initialized")
+        if not self.db_path.exists():
+            print("Error: Database not initialized")
+            print("Run 'hc-mcp init' first")
             sys.exit(1)
 
-        engine = QueryEngine(self.db)
+        # Execute with async
+        async def do_keys():
+            async with Database(self.db_path) as db:
+                engine = QueryEngine(db)
+
+                if args.prefix:
+                    # Autocomplete mode
+                    keys = await engine.autocomplete_key(args.prefix, args.type, args.limit)
+                else:
+                    # List all mode
+                    keys = await engine.get_available_keys(args.type)
+                    if args.limit:
+                        keys = keys[:args.limit]
+                return keys
+
+        keys = asyncio.run(do_keys())
 
         if args.prefix:
-            # Autocomplete mode
-            keys = engine.autocomplete_key(args.prefix, args.type, args.limit)
             print(f"\nKeys matching '{args.prefix}*':")
             for key in keys:
                 print(f"  {key}")
         else:
-            # List all mode
-            keys = engine.get_available_keys(args.type)
-            if args.limit:
-                keys = keys[:args.limit]
-
             print(f"\nAvailable {args.type} keys:\n")
             print(f"{'Key Name':<50} {'Usage Count':<15}")
             print("=" * 65)
@@ -1064,8 +1086,9 @@ class Manager:
         """Show request details."""
         from .detail_fetcher import DetailFetcher, DetailLevel
 
-        if not self.db:
-            print("Database not initialized")
+        if not self.db_path.exists():
+            print("Error: Database not initialized")
+            print("Run 'hc-mcp init' first")
             sys.exit(1)
 
         # Map CLI level to enum
@@ -1078,12 +1101,18 @@ class Manager:
         }
         detail_level = level_map.get(args.level, DetailLevel.FULL)
 
-        fetcher = DetailFetcher(self.db)
-        details = fetcher.get_request_details(
-            args.request_id,
-            detail_level,
-            args.decompress
-        )
+        # Execute with async
+        async def do_details():
+            async with Database(self.db_path) as db:
+                fetcher = DetailFetcher(db)
+                details = await fetcher.get_request_details(
+                    args.request_id,
+                    detail_level,
+                    args.decompress
+                )
+                return details
+
+        details = asyncio.run(do_details())
 
         if not details:
             print(f"Request not found: {args.request_id}")
