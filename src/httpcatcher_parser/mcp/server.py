@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server import Server
-from mcp.types import Resource, Tool
+from mcp.types import Resource, Tool, TextContent
 
 from .database import Database
 from .detail_fetcher import DetailFetcher, DetailLevel
@@ -260,9 +260,10 @@ class HttpCatcherMCPServer:
                     raise ValueError(f"Unknown tool: {name}")
             except Exception as e:
                 logger.error(f"Error calling tool {name}: {e}", exc_info=True)
-                return [{"error": str(e)}]
+                import json
+                return [TextContent(type="text", text=json.dumps({"error": str(e)}, indent=2))]
 
-    async def _search_requests(self, args: dict) -> list[dict]:
+    async def _search_requests(self, args: dict) -> list[TextContent]:
         """Handle search_requests tool."""
         filters = SearchFilters(
             method=args.get("method"),
@@ -316,15 +317,17 @@ class HttpCatcherMCPServer:
             results = await engine.search_requests(filters)
             total = await engine.count_requests(filters)
 
-        return [{
+        import json
+        result_data = {
             "total": total,
             "count": len(results),
             "offset": filters.offset,
             "limit": filters.limit,
             "results": results
-        }]
+        }
+        return [TextContent(type="text", text=json.dumps(result_data, indent=2))]
 
-    async def _get_request_details(self, args: dict) -> list[dict]:
+    async def _get_request_details(self, args: dict) -> list[TextContent]:
         """Handle get_request_details tool."""
         request_id = args["request_id"]
 
@@ -348,7 +351,8 @@ class HttpCatcherMCPServer:
             )
 
         if not details:
-            return [{"error": f"Request not found: {request_id}"}]
+            import json
+            return [TextContent(type="text", text=json.dumps({"error": f"Request not found: {request_id}"}, indent=2))]
 
         # Convert bytes to base64 for JSON serialization
         def make_json_safe(obj):
@@ -364,9 +368,10 @@ class HttpCatcherMCPServer:
                 return [make_json_safe(item) for item in obj]
             return obj
 
-        return [make_json_safe(details)]
+        import json
+        return [TextContent(type="text", text=json.dumps(make_json_safe(details), indent=2))]
 
-    async def _get_stats(self, args: dict) -> list[dict]:
+    async def _get_stats(self, args: dict) -> list[TextContent]:
         """Handle get_stats tool."""
         file_id = args.get("file_id")
 
@@ -375,9 +380,10 @@ class HttpCatcherMCPServer:
             engine = QueryEngine(db)
             stats = await engine.get_stats(file_id)
 
-        return [stats]
+        import json
+        return [TextContent(type="text", text=json.dumps(stats, indent=2))]
 
-    async def _list_files(self, args: dict) -> list[dict]:
+    async def _list_files(self, args: dict) -> list[TextContent]:
         """Handle list_files tool."""
         # Use async database connection
         async with Database(self.db_path) as db:
@@ -395,9 +401,10 @@ class HttpCatcherMCPServer:
         else:  # date
             files.sort(key=lambda f: f['indexed_at'], reverse=True)
 
-        return files
+        import json
+        return [TextContent(type="text", text=json.dumps(files, indent=2))]
 
-    async def _get_available_keys(self, args: dict) -> list[dict]:
+    async def _get_available_keys(self, args: dict) -> list[TextContent]:
         """Handle get_available_keys tool."""
         key_type = args["key_type"]
 
@@ -406,9 +413,10 @@ class HttpCatcherMCPServer:
             engine = QueryEngine(db)
             keys = await engine.get_available_keys(key_type)
 
-        return keys
+        import json
+        return [TextContent(type="text", text=json.dumps(keys, indent=2))]
 
-    async def _autocomplete_key(self, args: dict) -> list[str]:
+    async def _autocomplete_key(self, args: dict) -> list[TextContent]:
         """Handle autocomplete_key tool."""
         prefix = args["prefix"]
         key_type = args["key_type"]
@@ -419,9 +427,10 @@ class HttpCatcherMCPServer:
             engine = QueryEngine(db)
             keys = await engine.autocomplete_key(prefix, key_type, limit)
 
-        return keys
+        import json
+        return [TextContent(type="text", text=json.dumps(keys, indent=2))]
 
-    async def _index_file(self, args: dict) -> list[dict]:
+    async def _index_file(self, args: dict) -> list[TextContent]:
         """Handle index_file tool."""
         file_path = Path(args["file_path"])
         force_reindex = args.get("force_reindex", False)
@@ -434,9 +443,11 @@ class HttpCatcherMCPServer:
 
             try:
                 result = await indexer.index_file(file_path, force_reindex)
-                return [result]
+                import json
+                return [TextContent(type="text", text=json.dumps(result, indent=2))]
             except Exception as e:
-                return [{"error": str(e)}]
+                import json
+                return [TextContent(type="text", text=json.dumps({"error": str(e)}, indent=2))]
 
     def run(self):
         """Run the MCP server (stdio mode)."""
