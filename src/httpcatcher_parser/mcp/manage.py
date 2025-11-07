@@ -196,12 +196,58 @@ class Manager:
         # TODO: Implement migration system
         print("No migrations available")
 
-    # ====== FILES Commands (Placeholders) ======
+    # ====== FILES Commands ======
     def cmd_files_list(self, args) -> None:
         """List all session files."""
-        # TODO: Implement in Milestone 3
-        print("Not implemented yet (Milestone 3)")
-        sys.exit(1)
+        from .file_tracker import FileTracker
+        from datetime import datetime
+
+        if not self.db_path.exists():
+            print(f"Error: Database not found: {self.db_path}")
+            print("Run 'hc-mcp init' first")
+            sys.exit(1)
+
+        tracker = FileTracker(self.db)
+        files = tracker.list_files()
+
+        if not files:
+            print("No files indexed yet.")
+            return
+
+        if args.format == 'json':
+            import json
+            print(json.dumps(files, indent=2))
+            return
+
+        # Sort files
+        if args.sort == 'name':
+            files.sort(key=lambda f: f['filename'])
+        elif args.sort == 'size':
+            files.sort(key=lambda f: f['file_size'], reverse=True)
+        elif args.sort == 'requests':
+            files.sort(key=lambda f: f['request_count'], reverse=True)
+        # 'date' is default (already sorted by indexed_at DESC)
+
+        # Table format
+        print(f"{'ID':<6} {'Filename':<30} {'Size':>10} {'Requests':>10} {'Indexed At':<20}")
+        print("─" * 80)
+
+        total_size = 0
+        total_requests = 0
+
+        for f in files:
+            size_mb = f['file_size'] / (1024 * 1024)
+            total_size += f['file_size']
+            total_requests += f['request_count']
+
+            # Format timestamp
+            indexed_dt = datetime.fromtimestamp(f['indexed_at'])
+            indexed_str = indexed_dt.strftime("%Y-%m-%d %H:%M")
+
+            print(f"{f['id']:<6} {f['filename']:<30} {size_mb:>8.1f} MB {f['request_count']:>10,} {indexed_str:<20}")
+
+        print("─" * 80)
+        print(f"Total: {len(files)} files, {total_requests:,} requests, {total_size/(1024*1024):.1f} MB")
 
     def cmd_files_add(self, args) -> None:
         """Add a session file."""
@@ -267,34 +313,398 @@ class Manager:
             sys.exit(1)
 
     def cmd_files_add_dir(self, args) -> None:
-        """Add all session files from directory."""
-        # TODO: Implement in Milestone 3
-        print("Not implemented yet (Milestone 3)")
-        sys.exit(1)
+        """Add all session files from directory with parallel processing."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from ..hc_parser import HttpCatcherScanner
+        from .indexer import Indexer
+        from .file_tracker import FileTracker
+        import shutil
+
+        directory = Path(args.directory)
+
+        if not directory.exists():
+            print(f"Error: Directory not found: {directory}")
+            sys.exit(1)
+
+        if not self.db_path.exists():
+            print(f"Error: Database not initialized")
+            print("Run 'hc-mcp init' first")
+            sys.exit(1)
+
+        print(f"Scanning: {directory}")
+
+        tracker = FileTracker(self.db)
+        files = tracker.scan_directory(directory, args.pattern, args.recursive)
+
+        if not files:
+            print(f"No files matching pattern '{args.pattern}' found.")
+            return
+
+        print(f"Found {len(files)} file(s)\n")
+
+        # Process files in parallel
+        def process_file(source_path: Path) -> tuple[bool, str, int]:
+            """Process a single file. Returns (success, message, request_count)"""
+            try:
+                dest_name = source_path.name
+                dest_path = self.sessions_dir / dest_name
+
+                # Check if already exists
+                if dest_path.exists() and dest_path != source_path:
+                    return False, f"{source_path.name}: already exists", 0
+
+                # Copy/Move/Link
+                if source_path != dest_path:
+                    if args.link:
+                        import os
+                        os.symlink(source_path.resolve(), dest_path)
+                    elif args.move:
+                        shutil.move(str(source_path), str(dest_path))
+                    else:
+                        shutil.copy2(source_path, dest_path)
+
+                # Index
+                scanner = HttpCatcherScanner.default()
+                indexer = Indexer(self.db, scanner)
+                result = indexer.index_file(dest_path, force_reindex=True)
+
+                return True, f"{source_path.name}: {result['requests_added']} requests", result['requests_added']
+            except Exception as e:
+                return False, f"{source_path.name}: Error - {e}", 0
+
+        # Progress tracking
+        try:
+            from tqdm import tqdm
+            use_tqdm = True
+        except ImportError:
+            use_tqdm = False
+
+        # Parallel processing
+        max_workers = self.config.get('indexing', {}).get('parallel_workers', 4)
+
+        success_count = 0
+        failed_count = 0
+        total_requests = 0
+        errors = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_file, f): f for f in files}
+
+            if use_tqdm:
+                progress = tqdm(total=len(files), desc="Processing", unit="file")
+
+            for future in as_completed(futures):
+                success, message, req_count = future.result()
+
+                if use_tqdm:
+                    progress.update(1)
+                    if not success:
+                        progress.write(f"  ✗ {message}")
+                else:
+                    status = "✓" if success else "✗"
+                    print(f"  [{status}] {message}")
+
+                if success:
+                    success_count += 1
+                    total_requests += req_count
+                else:
+                    failed_count += 1
+                    errors.append(message)
+
+            if use_tqdm:
+                progress.close()
+
+        print(f"\nSummary:")
+        print(f"  Added: {success_count} files")
+        print(f"  Failed: {failed_count} files")
+        print(f"  Total requests: {total_requests:,}")
+
+        if errors:
+            print(f"\nErrors:")
+            for err in errors[:10]:  # Show first 10 errors
+                print(f"  - {err}")
 
     def cmd_files_remove(self, args) -> None:
         """Remove a session file."""
-        # TODO: Implement in Milestone 3
-        print("Not implemented yet (Milestone 3)")
-        sys.exit(1)
+        from .file_tracker import FileTracker
+
+        if not self.db_path.exists():
+            print(f"Error: Database not found: {self.db_path}")
+            sys.exit(1)
+
+        tracker = FileTracker(self.db)
+        file_id = tracker.resolve_file_id(args.identifier)
+
+        if file_id is None:
+            print(f"Error: File not found: {args.identifier}")
+            sys.exit(1)
+
+        file_info = tracker.get_file_info(file_id)
+
+        print(f"Removing file: {file_info['filename']} (ID: {file_id})")
+
+        # Remove from DB
+        request_count = tracker.remove_file(file_id)
+        print(f"  ✓ Removed {request_count} requests from database")
+        print(f"  ✓ Removed file record")
+
+        # Delete physical file
+        if args.delete_file:
+            file_path = Path(file_info['file_path'])
+            if file_path.exists():
+                file_path.unlink()
+                print(f"  ✓ Deleted file: {file_path}")
+        else:
+            print()
+            print(f"File still exists at: {file_info['file_path']}")
+            print(f"To delete the file, use: hc-mcp files remove {file_id} --delete-file")
 
     def cmd_files_info(self, args) -> None:
         """Show detailed file information."""
-        # TODO: Implement in Milestone 3
-        print("Not implemented yet (Milestone 3)")
-        sys.exit(1)
+        from .file_tracker import FileTracker
+        from datetime import datetime
+
+        if not self.db_path.exists():
+            print(f"Error: Database not found: {self.db_path}")
+            sys.exit(1)
+
+        tracker = FileTracker(self.db)
+        file_id = tracker.resolve_file_id(args.identifier)
+
+        if file_id is None:
+            print(f"Error: File not found: {args.identifier}")
+            sys.exit(1)
+
+        file_info = tracker.get_file_info(file_id)
+
+        # Get additional statistics
+        cursor = self.db.conn.execute(
+            """
+            SELECT
+                status_code,
+                COUNT(*) as count
+            FROM requests
+            WHERE file_id = ?
+            GROUP BY status_code
+            ORDER BY count DESC
+            """,
+            (file_id,)
+        )
+        status_breakdown = list(cursor.fetchall())
+
+        cursor = self.db.conn.execute(
+            """
+            SELECT
+                resp_content_category,
+                COUNT(*) as count
+            FROM requests
+            WHERE file_id = ?
+            GROUP BY resp_content_category
+            ORDER BY count DESC
+            """,
+            (file_id,)
+        )
+        content_breakdown = list(cursor.fetchall())
+
+        cursor = self.db.conn.execute(
+            """
+            SELECT
+                MIN(req_timestamp) as first_ts,
+                MAX(resp_timestamp) as last_ts
+            FROM requests
+            WHERE file_id = ?
+            """,
+            (file_id,)
+        )
+        time_range = cursor.fetchone()
+
+        cursor = self.db.conn.execute(
+            """
+            SELECT host, COUNT(*) as count
+            FROM requests
+            WHERE file_id = ?
+            GROUP BY host
+            ORDER BY count DESC
+            LIMIT 10
+            """,
+            (file_id,)
+        )
+        top_hosts = list(cursor.fetchall())
+
+        # Print info
+        print(f"File: {file_info['filename']}")
+        print(f"Path: {file_info['file_path']}")
+        print(f"ID: {file_info['id']}")
+        print(f"Size: {file_info['file_size'] / (1024*1024):.1f} MB")
+        print(f"SHA256: {file_info['file_hash'][:16]}...")
+        print()
+        indexed_dt = datetime.fromtimestamp(file_info['indexed_at'])
+        print(f"Indexed: {indexed_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Requests: {file_info['request_count']}")
+        print(f"Status: {file_info['status']}")
+
+        if status_breakdown:
+            print("\nStatus Code Breakdown:")
+            for status, count in status_breakdown[:5]:
+                status_str = f"{status}xx" if status is None else str(status)
+                print(f"  {status_str}: {count}")
+
+        if content_breakdown:
+            print("\nContent Types:")
+            for ct, count in content_breakdown[:5]:
+                print(f"  {ct or 'unknown'}: {count}")
+
+        if time_range and time_range[0] and time_range[1]:
+            first_ts = datetime.fromtimestamp(time_range[0] / 1000)
+            last_ts = datetime.fromtimestamp(time_range[1] / 1000)
+            duration = (time_range[1] - time_range[0]) / 1000
+            print("\nTime Range:")
+            print(f"  First: {first_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  Last: {last_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  Duration: {duration:.1f}s")
+
+        if top_hosts:
+            print("\nTop Hosts:")
+            for host, count in top_hosts:
+                print(f"  {host}: {count} requests")
 
     def cmd_files_reindex(self, args) -> None:
-        """Reindex session file(s)."""
-        # TODO: Implement in Milestone 3
-        print("Not implemented yet (Milestone 3)")
-        sys.exit(1)
+        """Reindex session file(s) with parallel processing."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from ..hc_parser import HttpCatcherScanner
+        from .indexer import Indexer
+        from .file_tracker import FileTracker
+
+        if not self.db_path.exists():
+            print(f"Error: Database not found: {self.db_path}")
+            sys.exit(1)
+
+        tracker = FileTracker(self.db)
+        scanner = HttpCatcherScanner.default()
+
+        # Determine files to reindex
+        if args.all:
+            files_to_reindex = tracker.list_files()
+            if not files_to_reindex:
+                print("No files to reindex.")
+                return
+            print(f"Reindexing {len(files_to_reindex)} file(s)...")
+        else:
+            if not args.identifier:
+                print("Error: Must specify file ID/name or --all")
+                sys.exit(1)
+
+            file_id = tracker.resolve_file_id(args.identifier)
+            if file_id is None:
+                print(f"Error: File not found: {args.identifier}")
+                sys.exit(1)
+
+            file_info = tracker.get_file_info(file_id)
+            files_to_reindex = [file_info]
+            print(f"Reindexing: {file_info['filename']}")
+
+        # Reindex in parallel
+        def reindex_file(file_info: dict) -> tuple[bool, str, int]:
+            try:
+                indexer = Indexer(self.db, scanner)
+                file_path = Path(file_info['file_path'])
+
+                if not file_path.exists():
+                    return False, f"{file_info['filename']}: File not found", 0
+
+                result = indexer.index_file(file_path, force_reindex=True)
+                return True, f"{file_info['filename']}: {result['requests_added']} requests", result['requests_added']
+            except Exception as e:
+                return False, f"{file_info['filename']}: Error - {e}", 0
+
+        max_workers = self.config.get('indexing', {}).get('parallel_workers', 4)
+        success_count = 0
+        failed_count = 0
+        total_requests = 0
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(reindex_file, f): f for f in files_to_reindex}
+
+            for future in as_completed(futures):
+                success, message, req_count = future.result()
+                status = "✓" if success else "✗"
+                print(f"  [{status}] {message}")
+
+                if success:
+                    success_count += 1
+                    total_requests += req_count
+                else:
+                    failed_count += 1
+
+        print(f"\nSummary:")
+        print(f"  Success: {success_count}")
+        print(f"  Failed: {failed_count}")
+        print(f"  Total requests: {total_requests:,}")
 
     def cmd_files_check(self, args) -> None:
         """Check consistency between DB and filesystem."""
-        # TODO: Implement in Milestone 3
-        print("Not implemented yet (Milestone 3)")
-        sys.exit(1)
+        from ..hc_parser import HttpCatcherScanner
+        from .indexer import Indexer
+        from .file_tracker import FileTracker
+
+        if not self.db_path.exists():
+            print(f"Error: Database not found: {self.db_path}")
+            sys.exit(1)
+
+        print("Checking consistency...")
+        tracker = FileTracker(self.db)
+        issues = tracker.check_consistency()
+
+        if not any(issues.values()):
+            print("✓ No issues found")
+            return
+
+        print("\nIssues found:\n")
+
+        # Orphaned
+        if issues['orphaned']:
+            print("Orphaned (in DB, but file missing):")
+            for f in issues['orphaned']:
+                print(f"  - {f['filename']} (ID: {f['id']}, {f['request_count']} requests)")
+            print()
+
+        # Modified
+        if issues['modified']:
+            print("Modified (file changed):")
+            for f in issues['modified']:
+                print(f"  - {f['filename']} (ID: {f['id']})")
+                print(f"    DB Hash: {f['db_hash'][:12]}...")
+                print(f"    File Hash: {f['file_hash'][:12]}...")
+            print()
+
+        print("Summary:")
+        print(f"  Orphaned: {len(issues['orphaned'])} files")
+        print(f"  Modified: {len(issues['modified'])} files")
+        print()
+        print("Run with --fix to automatically fix these issues.")
+
+        if args.fix:
+            print("\nFixing issues...")
+
+            # Remove orphaned
+            for f in issues['orphaned']:
+                tracker.remove_file(f['id'])
+                print(f"  ✓ Removed orphaned: {f['filename']}")
+
+            # Reindex modified
+            if issues['modified']:
+                scanner = HttpCatcherScanner.default()
+                indexer = Indexer(self.db, scanner)
+
+                for f in issues['modified']:
+                    try:
+                        file_path = Path(f['file_path'])
+                        result = indexer.index_file(file_path, force_reindex=True)
+                        print(f"  ✓ Reindexed: {f['filename']} ({result['requests_added']} requests)")
+                    except Exception as e:
+                        print(f"  ✗ Failed to reindex {f['filename']}: {e}")
+
+            print("\n✓ Issues fixed")
 
     # ====== CONFIG Commands ======
     def cmd_config_get(self, args) -> None:

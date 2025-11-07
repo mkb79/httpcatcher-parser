@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .database import Database
 
@@ -253,3 +254,94 @@ class FileTracker:
         current_hash = compute_file_hash(file_path)
 
         return stored_hash != current_hash
+
+    def scan_directory(
+        self,
+        directory: Path,
+        pattern: str = "*.session",
+        recursive: bool = True
+    ) -> list[Path]:
+        """Scan directory for session files.
+
+        Args:
+            directory: Directory to scan
+            pattern: Glob pattern for files
+            recursive: If True, scan recursively
+
+        Returns:
+            List of file paths matching pattern
+        """
+        if recursive:
+            return list(directory.rglob(pattern))
+        else:
+            return list(directory.glob(pattern))
+
+    def check_consistency(self) -> dict[str, list]:
+        """Check consistency between database and filesystem.
+
+        Returns:
+            Dict with 'orphaned', 'untracked', 'modified' file lists
+        """
+        issues = {
+            'orphaned': [],
+            'untracked': [],
+            'modified': []
+        }
+
+        # Check orphaned (in DB but file missing)
+        cursor = self.db.conn.execute(
+            "SELECT id, file_path FROM session_files WHERE status = 'active'"
+        )
+        for row in cursor.fetchall():
+            file_id, file_path = row[0], row[1]
+            if not Path(file_path).exists():
+                file_info = self.get_file_info(file_id)
+                if file_info:
+                    issues['orphaned'].append(file_info)
+
+        # Check modified (hash mismatch)
+        cursor = self.db.conn.execute(
+            "SELECT id, file_path, file_hash FROM session_files WHERE status = 'active'"
+        )
+        for row in cursor.fetchall():
+            file_id, file_path, db_hash = row[0], row[1], row[2]
+            path = Path(file_path)
+            if path.exists():
+                current_hash = compute_file_hash(path)
+                if current_hash != db_hash:
+                    issues['modified'].append({
+                        'id': file_id,
+                        'filename': path.name,
+                        'file_path': file_path,
+                        'db_hash': db_hash,
+                        'file_hash': current_hash
+                    })
+
+        return issues
+
+    def find_untracked_files(self, base_paths: list[Path], pattern: str = "*.session") -> list[Path]:
+        """Find files in base_paths that are not in database.
+
+        Args:
+            base_paths: Directories to scan
+            pattern: File pattern
+
+        Returns:
+            List of untracked file paths
+        """
+        # Get all tracked file paths
+        cursor = self.db.conn.execute(
+            "SELECT file_path FROM session_files WHERE status = 'active'"
+        )
+        tracked = set(row[0] for row in cursor.fetchall())
+
+        # Scan directories
+        untracked = []
+        for base_path in base_paths:
+            if not base_path.exists():
+                continue
+            for file_path in self.scan_directory(base_path, pattern, recursive=True):
+                if str(file_path) not in tracked:
+                    untracked.append(file_path)
+
+        return untracked
