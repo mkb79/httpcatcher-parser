@@ -949,3 +949,144 @@ class Manager:
                 print(f"{k['name']:<50} {k['usage_count']:<15}")
 
             print(f"\nTotal: {len(keys)} keys")
+
+    # ====== DETAILS Commands ======
+    def cmd_details(self, args) -> None:
+        """Show request details."""
+        from .detail_fetcher import DetailFetcher, DetailLevel
+
+        if not self.db:
+            print("Database not initialized")
+            sys.exit(1)
+
+        # Map CLI level to enum
+        level_map = {
+            'full': DetailLevel.FULL,
+            'headers': DetailLevel.HEADERS_ONLY,
+            'request': DetailLevel.REQUEST_ONLY,
+            'response': DetailLevel.RESPONSE_ONLY,
+            'metadata': DetailLevel.METADATA
+        }
+        detail_level = level_map.get(args.level, DetailLevel.FULL)
+
+        fetcher = DetailFetcher(self.db)
+        details = fetcher.get_request_details(
+            args.request_id,
+            detail_level,
+            args.decompress
+        )
+
+        if not details:
+            print(f"Request not found: {args.request_id}")
+            sys.exit(1)
+
+        if args.format == 'json':
+            import json
+            # Convert bytes to base64 for JSON serialization
+            def make_json_safe(obj):
+                if isinstance(obj, bytes):
+                    import base64
+                    return base64.b64encode(obj).decode('ascii')
+                elif isinstance(obj, dict):
+                    return {k: make_json_safe(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [make_json_safe(item) for item in obj]
+                return obj
+
+            print(json.dumps(make_json_safe(details), indent=2))
+        else:
+            # Pretty format
+            from datetime import datetime
+
+            print("\n" + "=" * 80)
+            print(f"REQUEST DETAILS - ID {details['id']}")
+            print("=" * 80)
+
+            # Basic info
+            print(f"\nMethod: {details['method']}")
+            print(f"URL: {details['url']}")
+            print(f"Host: {details['host']}")
+            print(f"Path: {details['path']}")
+            print(f"Status: {details['status_code']}")
+
+            if details.get('req_timestamp'):
+                req_time = datetime.fromtimestamp(details['req_timestamp'])
+                print(f"Request Time: {req_time}")
+
+            if details.get('resp_timestamp'):
+                resp_time = datetime.fromtimestamp(details['resp_timestamp'])
+                print(f"Response Time: {resp_time}")
+
+            if details.get('duration_ms') is not None:
+                print(f"Duration: {details['duration_ms']} ms")
+
+            # Request section
+            if 'request' in details:
+                print("\n" + "-" * 80)
+                print("REQUEST")
+                print("-" * 80)
+
+                print(f"\nContent-Type: {details.get('req_content_type', 'N/A')}")
+                print(f"Body Size: {details['request']['body_size']} bytes")
+
+                print("\nHeaders:")
+                print(fetcher.format_headers(details['request']['headers']))
+
+                if details['request']['cookies']:
+                    print("\nCookies:")
+                    print(fetcher.format_cookies(details['request']['cookies']))
+
+                if 'body' in details['request']:
+                    print("\nBody:")
+                    body = details['request']['body']
+                    if isinstance(body, bytes):
+                        # Try to decode
+                        try:
+                            body_str = body.decode('utf-8', errors='replace')
+                            if len(body_str) > 1000:
+                                body_str = body_str[:1000] + f"\n... ({len(body) - 1000} more bytes)"
+                            print(body_str)
+                        except Exception:
+                            print(f"(binary data, {len(body)} bytes)")
+                    else:
+                        print(body)
+                elif details['request'].get('body_preview'):
+                    print("\nBody Preview:")
+                    print(details['request']['body_preview'])
+
+            # Response section
+            if 'response' in details:
+                print("\n" + "-" * 80)
+                print("RESPONSE")
+                print("-" * 80)
+
+                print(f"\nContent-Type: {details.get('resp_content_type', 'N/A')}")
+                print(f"Content Category: {details.get('resp_content_category', 'N/A')}")
+                print(f"Body Size: {details['response']['body_size']} bytes")
+
+                print("\nHeaders:")
+                print(fetcher.format_headers(details['response']['headers']))
+
+                if details['response']['cookies']:
+                    print("\nSet-Cookie:")
+                    print(fetcher.format_cookies(details['response']['cookies']))
+
+                if 'body' in details['response']:
+                    print("\nBody:")
+                    body = details['response']['body']
+                    if isinstance(body, bytes):
+                        # Try to decode
+                        try:
+                            body_str = body.decode('utf-8', errors='replace')
+                            if len(body_str) > 1000:
+                                body_str = body_str[:1000] + f"\n... ({len(body) - 1000} more bytes)"
+                            print(body_str)
+                        except Exception:
+                            print(f"(binary data, {len(body)} bytes)")
+                    else:
+                        print(body)
+                elif details['response'].get('body_preview'):
+                    print("\nBody Preview:")
+                    print(details['response']['body_preview'])
+
+            print("\n" + "=" * 80)
