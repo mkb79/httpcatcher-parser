@@ -64,6 +64,11 @@ class HttpCatcherMCPServer:
                         "- Use 'fields' to select only needed fields (default: minimal set)\n"
                         "- Set 'limit' to 10 or less for quick overviews\n"
                         "- Use 'sparse_mode=true' for absolute minimum data\n\n"
+                        "PAGINATION:\n"
+                        "- Use 'limit' and 'offset' to page through results\n"
+                        "- Response includes 'has_more', 'next_offset', 'page', 'total_pages'\n"
+                        "- Example: offset=0 (page 1), offset=10 (page 2), offset=20 (page 3)\n"
+                        "- Check 'has_more' to see if more results exist\n\n"
                         "FIELD PRESETS:\n"
                         "- minimal: id, method, url, status_code (85% reduction)\n"
                         "- standard: + host, path, content types\n"
@@ -436,12 +441,24 @@ class HttpCatcherMCPServer:
         # else: full - keep all fields
 
         import json
+
+        # Add pagination hints for easier navigation
+        has_more = (filters.offset + len(results)) < total
+        next_offset = filters.offset + len(results) if has_more else None
+        current_page = (filters.offset // filters.limit) + 1 if filters.limit > 0 else 1
+        total_pages = (total + filters.limit - 1) // filters.limit if filters.limit > 0 else 1
+
         result_data = {
             "total": total,
             "count": len(results),
             "offset": filters.offset,
             "limit": filters.limit,
             "field_preset": "sparse" if sparse_mode else field_preset,
+            # Pagination hints
+            "has_more": has_more,
+            "next_offset": next_offset,
+            "page": current_page,
+            "total_pages": total_pages,
             "results": results
         }
         return [TextContent(type="text", text=json.dumps(result_data, indent=2))]
