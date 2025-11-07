@@ -317,12 +317,17 @@ class Manager:
         print(f"Adding: {source_path}")
 
         async def add_file():
+            from tqdm import tqdm
+
             async with Database(self.db_path) as db:
                 await db.initialize()
 
                 # Check for duplicate by hash
                 try:
-                    file_hash = await compute_file_hash(source_path)
+                    with tqdm(total=1, desc="Computing hash", unit="file", leave=False) as pbar:
+                        file_hash = await compute_file_hash(source_path)
+                        pbar.update(1)
+
                     tracker = FileTracker(db)
                     duplicate = await tracker.find_duplicate_by_hash(file_hash)
                     if duplicate:
@@ -344,26 +349,29 @@ class Manager:
 
                 # Copy/Move/Link
                 if source_path != dest_path:
-                    if args.link:
-                        os.symlink(source_path.resolve(), dest_path)
-                        print(f"  ✓ Linked to: {dest_path}")
-                    elif args.move:
-                        shutil.move(str(source_path), str(dest_path))
-                        print(f"  ✓ Moved to: {dest_path}")
-                    else:  # copy (default)
-                        shutil.copy2(source_path, dest_path)
-                        print(f"  ✓ Copied to: {dest_path}")
+                    with tqdm(total=1, desc="Copying file", unit="file", leave=False) as pbar:
+                        if args.link:
+                            os.symlink(source_path.resolve(), dest_path)
+                            print(f"  ✓ Linked to: {dest_path}")
+                        elif args.move:
+                            shutil.move(str(source_path), str(dest_path))
+                            print(f"  ✓ Moved to: {dest_path}")
+                        else:  # copy (default)
+                            shutil.copy2(source_path, dest_path)
+                            print(f"  ✓ Copied to: {dest_path}")
+                        pbar.update(1)
                 else:
                     print(f"  ✓ File already in sessions directory")
 
                 # Index
-                print("  ✓ Indexing...")
                 scanner = HttpCatcherScanner.default()
                 indexer = Indexer(db, scanner)
 
                 try:
-                    result = await indexer.index_file(dest_path, force_reindex=True)
-                    print(f"    Found: {result['requests_added']} requests")
+                    with tqdm(total=1, desc="Indexing file", unit="file", leave=False) as pbar:
+                        result = await indexer.index_file(dest_path, force_reindex=True)
+                        pbar.update(1)
+
                     print(f"  ✓ Indexed successfully")
                     print()
                     print(f"File ID: {result['file_id']}")
@@ -415,13 +423,16 @@ class Manager:
 
         print(f"Found {len(files)} file(s)\n")
 
-        # Process all files in parallel with async
+        # Process all files in parallel with async and progress bar
         async def process_all_files():
+            from tqdm.asyncio import tqdm as async_tqdm
+
             async with Database(self.db_path) as db:
                 await db.initialize()
 
-                async def process_file(source_path: Path) -> tuple[bool, str, int]:
-                    """Process a single file. Returns (success, message, request_count)"""
+                async def process_file(source_path: Path) -> tuple[bool, str, int, str]:
+                    """Process a single file. Returns (success, message, request_count, filename)"""
+                    filename = source_path.name
                     try:
                         # Check for duplicates by hash first
                         try:
@@ -429,7 +440,7 @@ class Manager:
                             tracker = FileTracker(db)
                             duplicate = await tracker.find_duplicate_by_hash(file_hash)
                             if duplicate:
-                                return False, f"{source_path.name}: duplicate (already indexed as {Path(duplicate['file_path']).name})", 0
+                                return False, f"duplicate (already indexed as {Path(duplicate['file_path']).name})", 0, filename
                         except Exception:
                             pass
 
@@ -438,7 +449,7 @@ class Manager:
 
                         # Check if destination file already exists
                         if dest_path.exists() and dest_path != source_path:
-                            return False, f"{source_path.name}: already exists in sessions directory", 0
+                            return False, "already exists in sessions directory", 0, filename
 
                         # Copy/Move/Link (sync file operations)
                         if source_path != dest_path:
@@ -454,50 +465,64 @@ class Manager:
                         indexer = Indexer(db, scanner)
                         result = await indexer.index_file(dest_path, force_reindex=True)
 
-                        return True, f"{source_path.name}: {result['requests_added']} requests", result['requests_added']
+                        return True, f"{result['requests_added']} requests", result['requests_added'], filename
                     except Exception as e:
-                        return False, f"{source_path.name}: Error - {e}", 0
+                        return False, f"Error - {e}", 0, filename
 
-                # Process all files in parallel with asyncio.gather()
-                results = await asyncio.gather(*[process_file(f) for f in files])
+                # Create tasks for all files
+                tasks = [process_file(f) for f in files]
+
+                # Process with progress bar using asyncio.as_completed for real-time updates
+                results = []
+                with async_tqdm(total=len(files), desc="Processing files", unit="file") as pbar:
+                    for coro in asyncio.as_completed(tasks):
+                        result = await coro
+                        results.append(result)
+
+                        # Update progress bar with current file info
+                        success, message, req_count, filename = result
+                        status = "✓" if success else "✗"
+                        pbar.set_postfix_str(f"{status} {filename[:30]}")
+                        pbar.update(1)
+
                 return results
-
-        # Progress tracking
-        try:
-            from tqdm import tqdm
-            use_tqdm = True
-        except ImportError:
-            use_tqdm = False
 
         # Run async processing
         results = asyncio.run(process_all_files())
 
-        # Display results
+        # Display results summary
+        print()  # New line after progress bar
         success_count = 0
         failed_count = 0
         total_requests = 0
         errors = []
 
-        for success, message, req_count in results:
-            status = "✓" if success else "✗"
-            print(f"  [{status}] {message}")
-
+        for success, message, req_count, filename in results:
             if success:
                 success_count += 1
                 total_requests += req_count
             else:
                 failed_count += 1
-                errors.append(message)
+                errors.append(f"{filename}: {message}")
+
+        # Show successful files
+        print("Successful:")
+        for success, message, req_count, filename in results:
+            if success:
+                print(f"  [✓] {filename}: {message}")
+
+        # Show failed files
+        if failed_count > 0:
+            print("\nFailed:")
+            for success, message, req_count, filename in results:
+                if not success:
+                    print(f"  [✗] {filename}: {message}")
 
         print(f"\nSummary:")
         print(f"  Added: {success_count} files")
-        print(f"  Failed: {failed_count} files")
+        if failed_count > 0:
+            print(f"  Skipped: {failed_count} files")
         print(f"  Total requests: {total_requests:,}")
-
-        if errors:
-            print(f"\nErrors:")
-            for err in errors[:10]:  # Show first 10 errors
-                print(f"  - {err}")
 
     def cmd_files_remove(self, args) -> None:
         """Remove a session file."""
