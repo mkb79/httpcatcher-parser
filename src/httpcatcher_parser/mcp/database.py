@@ -208,10 +208,13 @@ END;
 PRAGMA_SQL = """
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
-PRAGMA cache_size = -64000;
+PRAGMA cache_size = -128000;
 PRAGMA temp_store = MEMORY;
-PRAGMA mmap_size = 268435456;
+PRAGMA mmap_size = 536870912;
+PRAGMA page_size = 8192;
 PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+PRAGMA wal_autocheckpoint = 1000;
 """
 
 

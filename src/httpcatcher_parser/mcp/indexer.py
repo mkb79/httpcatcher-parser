@@ -53,10 +53,14 @@ class RequestAggregation:
 class KeyIndexer:
     """Manages normalized key lookup with caching."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, prefetch: bool = True):
         self.db = db
         self._header_cache: dict[str, int] = {}
         self._cookie_cache: dict[str, int] = {}
+
+        # Prefetch all existing keys for faster lookups
+        if prefetch:
+            self._prefetch_keys()
 
     def get_or_create_header_key(self, name: str) -> int:
         """Get or create header key ID."""
@@ -103,6 +107,18 @@ class KeyIndexer:
 
         self._cookie_cache[name] = key_id
         return key_id
+
+    def _prefetch_keys(self):
+        """Prefetch all existing keys into cache for faster lookups."""
+        # Prefetch header keys
+        cursor = self.db.conn.execute("SELECT name, id FROM header_keys")
+        for name, key_id in cursor.fetchall():
+            self._header_cache[name] = key_id
+
+        # Prefetch cookie keys
+        cursor = self.db.conn.execute("SELECT name, id FROM cookie_keys")
+        for name, key_id in cursor.fetchall():
+            self._cookie_cache[name] = key_id
 
 
 def _parse_headers(payload: Optional[bytes]) -> tuple[Optional[str], list[tuple[str, str]]]:
@@ -399,7 +415,10 @@ class Indexer:
                     cookie.get('same_site')
                 ))
 
-        # Bulk inserts
+        # Bulk inserts with explicit transaction for better performance
+        # Single large transaction is much faster than autocommit per statement
+        self.db.conn.execute("BEGIN TRANSACTION")
+
         self.db.conn.executemany(
             """
             INSERT INTO requests (
@@ -446,5 +465,8 @@ class Indexer:
             )
 
         self.db.conn.commit()
+
+        # Optimize after bulk insert
+        self.db.conn.execute("PRAGMA optimize")
 
         return len(requests_batch)

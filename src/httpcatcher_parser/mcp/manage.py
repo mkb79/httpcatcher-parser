@@ -400,8 +400,10 @@ class Manager:
         except ImportError:
             use_tqdm = False
 
-        # Parallel processing
-        max_workers = self.config.get('indexing', {}).get('parallel_workers', 4)
+        # Parallel processing - use CPU count * 2 for I/O bound tasks
+        import os
+        default_workers = min(os.cpu_count() * 2 if os.cpu_count() else 8, 16)
+        max_workers = self.config.get('indexing', {}).get('parallel_workers', default_workers)
 
         success_count = 0
         failed_count = 0
@@ -638,7 +640,10 @@ class Manager:
             except Exception as e:
                 return False, f"{file_info['filename']}: Error - {e}", 0
 
-        max_workers = self.config.get('indexing', {}).get('parallel_workers', 4)
+        # Use CPU count * 2 for I/O bound tasks
+        import os
+        default_workers = min(os.cpu_count() * 2 if os.cpu_count() else 8, 16)
+        max_workers = self.config.get('indexing', {}).get('parallel_workers', default_workers)
         success_count = 0
         failed_count = 0
         total_requests = 0
