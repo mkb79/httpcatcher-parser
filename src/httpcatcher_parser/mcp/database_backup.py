@@ -86,6 +86,8 @@ CREATE TABLE IF NOT EXISTS requests (
     resp_body_offset INTEGER,
     req_body_length INTEGER,
     resp_body_length INTEGER,
+    req_body_blob BLOB,
+    resp_body_blob BLOB,
 
     req_body_preview TEXT,
     resp_body_preview TEXT,

@@ -402,7 +402,9 @@ class Indexer:
                 req_headers_json, resp_headers_json,
                 req_cookies_json, resp_cookies_json,
                 len(req_body), len(resp_body),
-                None, None, None, None,  # body offsets TODO: implement lazy loading
+                None, None, None, None,  # body offsets (kept for future file-based storage)
+                req_body if req_body else None,  # req_body_blob
+                resp_body if resp_body else None,  # resp_body_blob
                 req_body_preview, resp_body_preview
             ))
 
@@ -423,8 +425,9 @@ class Indexer:
                 req_cookies_json, resp_cookies_json,
                 req_body_size, resp_body_size,
                 req_body_offset, resp_body_offset, req_body_length, resp_body_length,
+                req_body_blob, resp_body_blob,
                 req_body_preview, resp_body_preview
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             requests_batch
         )

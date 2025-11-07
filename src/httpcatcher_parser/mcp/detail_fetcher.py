@@ -65,6 +65,7 @@ class DetailFetcher:
                 r.req_cookies_json, r.resp_cookies_json,
                 r.req_body_size, r.resp_body_size,
                 r.req_body_offset, r.resp_body_offset, r.req_body_length, r.resp_body_length,
+                r.req_body_blob, r.resp_body_blob,
                 r.req_body_preview, r.resp_body_preview,
                 sf.file_path
             FROM requests r
@@ -111,7 +112,7 @@ class DetailFetcher:
                 'headers': json.loads(row[15]) if row[15] else [],
                 'cookies': json.loads(row[17]) if row[17] else [],
                 'body_size': row[19],
-                'body_preview': row[25]
+                'body_preview': row[27]
             }
 
         # Response headers and cookies (if not request-only)
@@ -120,24 +121,44 @@ class DetailFetcher:
                 'headers': json.loads(row[16]) if row[16] else [],
                 'cookies': json.loads(row[18]) if row[18] else [],
                 'body_size': row[20],
-                'body_preview': row[26]
+                'body_preview': row[28]
             }
 
-        # Load full bodies if offsets are available and detail level allows
-        file_path = Path(row[27])
+        # Load full bodies from BLOBs (preferred) or from file (fallback)
+        file_path = Path(row[29])
 
         if detail_level in (DetailLevel.FULL, DetailLevel.REQUEST_ONLY):
-            if row[21] is not None and row[23] is not None:  # req_body_offset, req_body_length
+            body_data = None
+
+            # Try loading from BLOB first (preferred method)
+            if row[25] is not None:  # req_body_blob
+                body_data = row[25]
+            # Fallback to file-based loading if offsets are available
+            elif row[21] is not None and row[23] is not None:  # req_body_offset, req_body_length
                 body_data = await self._load_body_from_file(file_path, row[21], row[23])
-                if body_data and decompress_bodies and row[12]:  # req_content_type
-                    body_data = self._try_decompress(body_data, row[12])
+
+            # Decompress if needed
+            if body_data and decompress_bodies and row[12]:  # req_content_type
+                body_data = self._try_decompress(body_data, row[12])
+
+            if body_data is not None:
                 details['request']['body'] = body_data
 
         if detail_level in (DetailLevel.FULL, DetailLevel.RESPONSE_ONLY):
-            if row[22] is not None and row[24] is not None:  # resp_body_offset, resp_body_length
+            body_data = None
+
+            # Try loading from BLOB first (preferred method)
+            if row[26] is not None:  # resp_body_blob
+                body_data = row[26]
+            # Fallback to file-based loading if offsets are available
+            elif row[22] is not None and row[24] is not None:  # resp_body_offset, resp_body_length
                 body_data = await self._load_body_from_file(file_path, row[22], row[24])
-                if body_data and decompress_bodies and row[13]:  # resp_content_type
-                    body_data = self._try_decompress(body_data, row[13])
+
+            # Decompress if needed
+            if body_data and decompress_bodies and row[13]:  # resp_content_type
+                body_data = self._try_decompress(body_data, row[13])
+
+            if body_data is not None:
                 details['response']['body'] = body_data
 
         return details

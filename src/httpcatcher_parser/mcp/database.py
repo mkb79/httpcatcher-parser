@@ -81,6 +81,22 @@ class Database:
 
         await conn.commit()
 
+        # Run migrations
+        await self._run_migrations()
+
+    async def _run_migrations(self) -> None:
+        """Run database migrations for schema updates."""
+        conn = await self.connect()
+
+        # Migration 1: Add body BLOB columns if they don't exist
+        cursor = await conn.execute("PRAGMA table_info(requests)")
+        columns = {row[1] async for row in cursor}
+
+        if 'req_body_blob' not in columns:
+            await conn.execute("ALTER TABLE requests ADD COLUMN req_body_blob BLOB")
+            await conn.execute("ALTER TABLE requests ADD COLUMN resp_body_blob BLOB")
+            await conn.commit()
+
     async def reset(self) -> None:
         """Reset database (delete all data, keep schema)."""
         conn = await self.connect()
