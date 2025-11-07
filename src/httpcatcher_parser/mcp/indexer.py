@@ -66,49 +66,49 @@ class KeyIndexer:
             self._prefetch_done = True
 
     async def get_or_create_header_key(self, name: str) -> int:
-        """Get or create header key ID."""
+        """Get or create header key ID (race-condition safe)."""
         if name in self._header_cache:
             return self._header_cache[name]
 
         conn = await self.db.connect()
+
+        # Use INSERT OR IGNORE to handle race conditions in parallel processing
+        await conn.execute(
+            "INSERT OR IGNORE INTO header_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
+            (name, name.lower())
+        )
+
+        # Always SELECT to get the ID (whether we inserted it or it already existed)
         cursor = await conn.execute(
             "SELECT id FROM header_keys WHERE name = ?",
             (name,)
         )
         row = await cursor.fetchone()
-
-        if row:
-            key_id = row[0]
-        else:
-            cursor = await conn.execute(
-                "INSERT INTO header_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
-                (name, name.lower())
-            )
-            key_id = cursor.lastrowid
+        key_id = row[0]
 
         self._header_cache[name] = key_id
         return key_id
 
     async def get_or_create_cookie_key(self, name: str) -> int:
-        """Get or create cookie key ID."""
+        """Get or create cookie key ID (race-condition safe)."""
         if name in self._cookie_cache:
             return self._cookie_cache[name]
 
         conn = await self.db.connect()
+
+        # Use INSERT OR IGNORE to handle race conditions in parallel processing
+        await conn.execute(
+            "INSERT OR IGNORE INTO cookie_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
+            (name, name.lower())
+        )
+
+        # Always SELECT to get the ID (whether we inserted it or it already existed)
         cursor = await conn.execute(
             "SELECT id FROM cookie_keys WHERE name = ?",
             (name,)
         )
         row = await cursor.fetchone()
-
-        if row:
-            key_id = row[0]
-        else:
-            cursor = await conn.execute(
-                "INSERT INTO cookie_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
-                (name, name.lower())
-            )
-            key_id = cursor.lastrowid
+        key_id = row[0]
 
         self._cookie_cache[name] = key_id
         return key_id
