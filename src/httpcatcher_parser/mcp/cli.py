@@ -191,10 +191,7 @@ def main():
             manager.cmd_init(args)
 
         elif args.command == 'server':
-            # TODO: Implement in Milestone 6
-            print("Server command not implemented yet (Milestone 6)")
-            print("This will start the MCP server in stdio mode")
-            sys.exit(1)
+            manager.cmd_server(args)
 
         elif args.command == 'db':
             if args.db_command == 'status':

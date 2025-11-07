@@ -83,6 +83,27 @@ class Manager:
             json.dump(self.config, f, indent=2)
 
     # ====== INIT Command ======
+    def cmd_server(self, args) -> None:
+        """Start MCP server."""
+        from .server import main as server_main
+
+        # Check database exists
+        if not self.db_path.exists():
+            print(f"Error: Database not found: {self.db_path}")
+            print("Run 'hc-mcp init' first")
+            sys.exit(1)
+
+        # Set log level
+        log_level = getattr(args, 'log_level', 'info')
+
+        # Override data dir if db-path provided
+        data_dir = self.data_dir
+        if hasattr(args, 'db_path') and args.db_path:
+            data_dir = args.db_path.parent
+
+        # Start server
+        server_main(data_dir, log_level)
+
     def cmd_init(self, args) -> None:
         """Initialize directory structure and database."""
         print(f"Initializing httpcatcher MCP in: {self.data_dir}")
