@@ -111,28 +111,49 @@ results = asyncio.run(process_files_parallel(files, Path("index.db")))
 - **No FOREIGN KEY constraint failures** from concurrent writes
 - **No database lock contention** - single-threaded async is safer
 
-## Next Steps
+## CLI Integration ✅ COMPLETE
 
-### CLI Integration (Pending)
+All `manage.py` commands now use async modules with `asyncio.run()` pattern:
 
-Update `manage.py` commands to use async modules:
+### Implemented Commands
 
+**Database Commands:**
+- `init` - Initialize database with async
+- `db status` - Database statistics
+- `db stats` - Detailed statistics
+- `db vacuum` - Optimize database
+- `db reset` - Reset database
+
+**File Commands:**
+- `files list` - List indexed files
+- `files add` - Add single file with async indexing
+- `files add-dir` - **Parallel batch processing with `asyncio.gather()`** ⚡
+  - No `threading.Lock()` needed
+  - True I/O concurrency
+  - No threading errors
+- `files info` - File information
+- `files remove` - Remove file from index
+
+**Query Commands:**
+- `search` - Search requests
+- `stats` - Request statistics
+- `keys` - List header/cookie keys
+- `details` - Request details
+
+### Key Achievement: Parallel Import
+
+The `files add-dir` command now uses:
 ```python
-def cmd_files_add(self, args):
-    async def async_add():
-        async with Database(self.db_path) as db:
-            await db.initialize()
-            # ... indexing logic
-
-    asyncio.run(async_add())
+# Process all files in parallel with asyncio.gather()
+results = await asyncio.gather(*[process_file(f) for f in files])
 ```
 
-Commands to update:
-- `files add` - Single file indexing
-- `files add-dir` - Parallel batch processing with `asyncio.gather()`
-- `files list`, `files info`, `files remove` - Simple async calls
-- `search`, `stats`, `keys`, `details` - Query operations
-- `db status`, `db vacuum`, `db stats`, `db reset` - Database ops
+**Benefits:**
+- ✅ No threading locks needed
+- ✅ No "bad parameter" SQLite errors
+- ✅ No FOREIGN KEY constraint failures
+- ✅ True parallel I/O processing
+- ✅ Better error handling
 
 ### MCP Server Integration (Pending)
 
@@ -141,7 +162,9 @@ Update `server.py` to use async modules:
 - Use `Database` instead of sync version
 - Test all 7 MCP tools
 
-## Testing
+## Testing ✅
+
+### Basic Module Tests
 
 Run the test script:
 
@@ -163,6 +186,62 @@ Testing async file tracker...
 
 ✓ All tests passed!
 ```
+
+### Parallel Processing Tests
+
+Run the parallel import test:
+
+```bash
+python test_parallel_import.py
+```
+
+Expected output:
+```
+=== Testing Async Parallel Processing ===
+
+✓ Database initialized
+✓ Testing parallel execution of 10 tasks...
+✓ Processed 10 items in parallel
+✓ All parallel tasks completed successfully
+✓ FileTracker working (found 0 files)
+✓ Database queries working (count: 0)
+
+✓ All parallel processing tests passed!
+
+=== Testing Concurrent File Operations ===
+
+✓ Created 5 test files
+✓ Computing file hashes in parallel...
+✓ Computed 5 hashes in parallel
+✓ All file hashes are unique
+
+✓ Concurrent file operations test passed!
+
+SUCCESS: All async tests passed!
+```
+
+### CLI Tests
+
+Test the CLI commands:
+
+```bash
+# Initialize database (no RuntimeWarning!)
+hc-mcp init
+
+# List files
+hc-mcp files list
+
+# Check database status
+hc-mcp db status
+
+# Get statistics
+hc-mcp db stats
+
+# Add files (when you have .hcs files)
+hc-mcp files add-dir /path/to/hc_sessions/ --copy
+```
+
+All commands work without threading errors or warnings!
 
 ## Performance Comparison
 
