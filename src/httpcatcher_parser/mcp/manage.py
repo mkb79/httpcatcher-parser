@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -121,7 +122,11 @@ class Manager:
         print(f"✓ Created subdirectory: {logs_dir}")
 
         # Initialize database
-        self.db.initialize()
+        async def init_db():
+            async with Database(self.db_path) as db:
+                await db.initialize()
+
+        asyncio.run(init_db())
         print(f"✓ Initialized database: {self.db_path}")
 
         # Create default config
@@ -141,7 +146,12 @@ class Manager:
             print("Run 'hc-mcp init' first")
             sys.exit(1)
 
-        stats = self.db.get_stats()
+        async def get_stats():
+            from .database_backup import Database as SyncDatabase
+            db = SyncDatabase(self.db_path)
+            return db.get_stats()
+
+        stats = asyncio.run(get_stats())
         size_mb = self.db_path.stat().st_size / (1024 * 1024)
 
         print(f"Database: {self.db_path}")
@@ -161,10 +171,12 @@ class Manager:
         size_before = self.db_path.stat().st_size
 
         print("Running VACUUM...")
-        self.db.vacuum()
+        async def vacuum():
+            async with Database(self.db_path) as db:
+                await db.vacuum()
+                await db.analyze()
 
-        print("Running ANALYZE...")
-        self.db.analyze()
+        asyncio.run(vacuum())
 
         size_after = self.db_path.stat().st_size
         saved = size_before - size_after
@@ -181,7 +193,12 @@ class Manager:
             print(f"Error: Database not found: {self.db_path}")
             sys.exit(1)
 
-        stats = self.db.get_stats()
+        async def get_stats():
+            from .database_backup import Database as SyncDatabase
+            db = SyncDatabase(self.db_path)
+            return db.get_stats()
+
+        stats = asyncio.run(get_stats())
 
         print("┌─────────────────────┬────────┐")
         print("│ Metric              │ Value  │")
@@ -209,7 +226,11 @@ class Manager:
                 print("Cancelled.")
                 return
 
-        self.db.reset()
+        async def reset():
+            async with Database(self.db_path) as db:
+                await db.reset()
+
+        asyncio.run(reset())
         print("✓ Database reset complete")
 
     def cmd_db_migrate(self, args) -> None:
@@ -228,8 +249,12 @@ class Manager:
             print("Run 'hc-mcp init' first")
             sys.exit(1)
 
-        tracker = FileTracker(self.db)
-        files = tracker.list_files()
+        async def list_files():
+            async with Database(self.db_path) as db:
+                tracker = FileTracker(db)
+                return await tracker.list_files()
+
+        files = asyncio.run(list_files())
 
         if not files:
             print("No files indexed yet.")
@@ -274,6 +299,9 @@ class Manager:
         """Add a session file."""
         from ..hc_parser import HttpCatcherScanner
         from .indexer import Indexer
+        from .file_tracker import FileTracker, compute_file_hash
+        import shutil
+        import os
 
         source_path = Path(args.path)
 
@@ -288,78 +316,77 @@ class Manager:
 
         print(f"Adding: {source_path}")
 
-        # Check for duplicate by hash
-        import hashlib
+        async def add_file():
+            async with Database(self.db_path) as db:
+                await db.initialize()
+
+                # Check for duplicate by hash
+                try:
+                    file_hash = await compute_file_hash(source_path)
+                    tracker = FileTracker(db)
+                    duplicate = await tracker.find_duplicate_by_hash(file_hash)
+                    if duplicate:
+                        print(f"Error: File is a duplicate of already indexed file:")
+                        print(f"  Existing: {duplicate['file_path']}")
+                        print(f"  Hash: {file_hash}")
+                        sys.exit(1)
+                except Exception as e:
+                    print(f"Warning: Could not check for duplicates: {e}")
+
+                # Determine destination
+                dest_name = args.name or source_path.name
+                dest_path = self.sessions_dir / dest_name
+
+                # Check if destination already exists
+                if dest_path.exists() and dest_path != source_path:
+                    print(f"Error: File already exists at destination: {dest_path}")
+                    sys.exit(1)
+
+                # Copy/Move/Link
+                if source_path != dest_path:
+                    if args.link:
+                        os.symlink(source_path.resolve(), dest_path)
+                        print(f"  ✓ Linked to: {dest_path}")
+                    elif args.move:
+                        shutil.move(str(source_path), str(dest_path))
+                        print(f"  ✓ Moved to: {dest_path}")
+                    else:  # copy (default)
+                        shutil.copy2(source_path, dest_path)
+                        print(f"  ✓ Copied to: {dest_path}")
+                else:
+                    print(f"  ✓ File already in sessions directory")
+
+                # Index
+                print("  ✓ Indexing...")
+                scanner = HttpCatcherScanner.default()
+                indexer = Indexer(db, scanner)
+
+                try:
+                    result = await indexer.index_file(dest_path, force_reindex=True)
+                    print(f"    Found: {result['requests_added']} requests")
+                    print(f"  ✓ Indexed successfully")
+                    print()
+                    print(f"File ID: {result['file_id']}")
+                    print(f"Requests added: {result['requests_added']}")
+                except Exception as e:
+                    print(f"  ✗ Indexing failed: {e}")
+                    # Clean up on failure
+                    if source_path != dest_path and dest_path.exists():
+                        dest_path.unlink()
+                    raise
+
         try:
-            sha256 = hashlib.sha256()
-            with open(source_path, 'rb') as f:
-                while chunk := f.read(8192):
-                    sha256.update(chunk)
-            file_hash = sha256.hexdigest()
-
-            from .file_tracker import FileTracker
-            tracker = FileTracker(self.db)
-            duplicate = tracker.find_duplicate_by_hash(file_hash)
-            if duplicate:
-                print(f"Error: File is a duplicate of already indexed file:")
-                print(f"  Existing: {duplicate['file_path']}")
-                print(f"  Hash: {file_hash}")
-                sys.exit(1)
-        except Exception as e:
-            print(f"Warning: Could not check for duplicates: {e}")
-
-        # Determine destination
-        dest_name = args.name or source_path.name
-        dest_path = self.sessions_dir / dest_name
-
-        # Check if destination already exists
-        if dest_path.exists() and dest_path != source_path:
-            print(f"Error: File already exists at destination: {dest_path}")
-            sys.exit(1)
-
-        # Copy/Move/Link
-        if source_path != dest_path:
-            if args.link:
-                import os
-                os.symlink(source_path.resolve(), dest_path)
-                print(f"  ✓ Linked to: {dest_path}")
-            elif args.move:
-                import shutil
-                shutil.move(str(source_path), str(dest_path))
-                print(f"  ✓ Moved to: {dest_path}")
-            else:  # copy (default)
-                import shutil
-                shutil.copy2(source_path, dest_path)
-                print(f"  ✓ Copied to: {dest_path}")
-        else:
-            print(f"  ✓ File already in sessions directory")
-
-        # Index
-        print("  ✓ Indexing...")
-        scanner = HttpCatcherScanner.default()
-        indexer = Indexer(self.db, scanner)
-
-        try:
-            result = indexer.index_file(dest_path, force_reindex=True)
-            print(f"    Found: {result['requests_added']} requests")
-            print(f"  ✓ Indexed successfully")
-            print()
-            print(f"File ID: {result['file_id']}")
-            print(f"Requests added: {result['requests_added']}")
-        except Exception as e:
-            print(f"  ✗ Indexing failed: {e}")
-            # Clean up on failure
-            if source_path != dest_path and dest_path.exists():
-                dest_path.unlink()
+            asyncio.run(add_file())
+        except Exception:
             sys.exit(1)
 
     def cmd_files_add_dir(self, args) -> None:
-        """Add all session files from directory with parallel processing."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        """Add all session files from directory with async parallel processing."""
         from ..hc_parser import HttpCatcherScanner
         from .indexer import Indexer
-        from .file_tracker import FileTracker
+        from .file_tracker import FileTracker, compute_file_hash
         import shutil
+        import os
 
         directory = Path(args.directory)
 
@@ -374,8 +401,13 @@ class Manager:
 
         print(f"Scanning: {directory}")
 
-        tracker = FileTracker(self.db)
-        files = tracker.scan_directory(directory, args.pattern, args.recursive)
+        # Scan directory (sync - pathlib glob is efficient)
+        async def scan():
+            async with Database(self.db_path) as db:
+                tracker = FileTracker(db)
+                return tracker.scan_directory(directory, args.pattern, args.recursive)
+
+        files = asyncio.run(scan())
 
         if not files:
             print(f"No files matching pattern '{args.pattern}' found.")
@@ -383,56 +415,52 @@ class Manager:
 
         print(f"Found {len(files)} file(s)\n")
 
-        # Process files in parallel
-        def process_file(source_path: Path) -> tuple[bool, str, int]:
-            """Process a single file. Returns (success, message, request_count)"""
-            try:
-                # Check for duplicates by hash first
-                import hashlib
-                file_hash = None
-                try:
-                    sha256 = hashlib.sha256()
-                    with open(source_path, 'rb') as f:
-                        while chunk := f.read(8192):
-                            sha256.update(chunk)
-                    file_hash = sha256.hexdigest()
-                except Exception:
-                    pass
+        # Process all files in parallel with async
+        async def process_all_files():
+            async with Database(self.db_path) as db:
+                await db.initialize()
 
-                if file_hash:
-                    from .file_tracker import FileTracker
-                    tracker_check = FileTracker(self.db)
-                    duplicate = tracker_check.find_duplicate_by_hash(file_hash)
-                    if duplicate:
-                        return False, f"{source_path.name}: duplicate (already indexed as {Path(duplicate['file_path']).name})", 0
+                async def process_file(source_path: Path) -> tuple[bool, str, int]:
+                    """Process a single file. Returns (success, message, request_count)"""
+                    try:
+                        # Check for duplicates by hash first
+                        try:
+                            file_hash = await compute_file_hash(source_path)
+                            tracker = FileTracker(db)
+                            duplicate = await tracker.find_duplicate_by_hash(file_hash)
+                            if duplicate:
+                                return False, f"{source_path.name}: duplicate (already indexed as {Path(duplicate['file_path']).name})", 0
+                        except Exception:
+                            pass
 
-                dest_name = source_path.name
-                dest_path = self.sessions_dir / dest_name
+                        dest_name = source_path.name
+                        dest_path = self.sessions_dir / dest_name
 
-                # Check if destination file already exists
-                if dest_path.exists() and dest_path != source_path:
-                    return False, f"{source_path.name}: already exists in sessions directory", 0
+                        # Check if destination file already exists
+                        if dest_path.exists() and dest_path != source_path:
+                            return False, f"{source_path.name}: already exists in sessions directory", 0
 
-                # Copy/Move/Link
-                if source_path != dest_path:
-                    if args.link:
-                        import os
-                        os.symlink(source_path.resolve(), dest_path)
-                    elif args.move:
-                        shutil.move(str(source_path), str(dest_path))
-                    else:
-                        shutil.copy2(source_path, dest_path)
+                        # Copy/Move/Link (sync file operations)
+                        if source_path != dest_path:
+                            if args.link:
+                                os.symlink(source_path.resolve(), dest_path)
+                            elif args.move:
+                                shutil.move(str(source_path), str(dest_path))
+                            else:
+                                shutil.copy2(source_path, dest_path)
 
-                # Index (with lock to prevent SQLite threading issues)
-                scanner = HttpCatcherScanner.default()
-                indexer = Indexer(self.db, scanner)
+                        # Index (async - NO LOCK NEEDED!)
+                        scanner = HttpCatcherScanner.default()
+                        indexer = Indexer(db, scanner)
+                        result = await indexer.index_file(dest_path, force_reindex=True)
 
-                with db_lock:
-                    result = indexer.index_file(dest_path, force_reindex=True)
+                        return True, f"{source_path.name}: {result['requests_added']} requests", result['requests_added']
+                    except Exception as e:
+                        return False, f"{source_path.name}: Error - {e}", 0
 
-                return True, f"{source_path.name}: {result['requests_added']} requests", result['requests_added']
-            except Exception as e:
-                return False, f"{source_path.name}: Error - {e}", 0
+                # Process all files in parallel with asyncio.gather()
+                results = await asyncio.gather(*[process_file(f) for f in files])
+                return results
 
         # Progress tracking
         try:
@@ -441,46 +469,25 @@ class Manager:
         except ImportError:
             use_tqdm = False
 
-        # Parallel processing - use CPU count * 2 for I/O bound tasks
-        import os
-        from threading import Lock
-        default_workers = min(os.cpu_count() * 2 if os.cpu_count() else 8, 16)
-        max_workers = self.config.get('indexing', {}).get('parallel_workers', default_workers)
+        # Run async processing
+        results = asyncio.run(process_all_files())
 
-        # Lock for database operations to prevent SQLite threading issues
-        db_lock = Lock()
-
+        # Display results
         success_count = 0
         failed_count = 0
         total_requests = 0
         errors = []
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_file, f): f for f in files}
+        for success, message, req_count in results:
+            status = "✓" if success else "✗"
+            print(f"  [{status}] {message}")
 
-            if use_tqdm:
-                progress = tqdm(total=len(files), desc="Processing", unit="file")
-
-            for future in as_completed(futures):
-                success, message, req_count = future.result()
-
-                if use_tqdm:
-                    progress.update(1)
-                    if not success:
-                        progress.write(f"  ✗ {message}")
-                else:
-                    status = "✓" if success else "✗"
-                    print(f"  [{status}] {message}")
-
-                if success:
-                    success_count += 1
-                    total_requests += req_count
-                else:
-                    failed_count += 1
-                    errors.append(message)
-
-            if use_tqdm:
-                progress.close()
+            if success:
+                success_count += 1
+                total_requests += req_count
+            else:
+                failed_count += 1
+                errors.append(message)
 
         print(f"\nSummary:")
         print(f"  Added: {success_count} files")
