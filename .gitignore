@@ -133,3 +133,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# HttpCatcher session files and analysis (PRIVATE DATA)
+*.hcs
+hc_sessions/
+register_*.json
+*_analysis.md
+*_analysis.py
+analyze_*.py
+compare_*.sh
