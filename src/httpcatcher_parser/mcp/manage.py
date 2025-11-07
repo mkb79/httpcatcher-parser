@@ -205,9 +205,66 @@ class Manager:
 
     def cmd_files_add(self, args) -> None:
         """Add a session file."""
-        # TODO: Implement in Milestone 2
-        print("Not implemented yet (Milestone 2)")
-        sys.exit(1)
+        from ..hc_parser import HttpCatcherScanner
+        from .indexer import Indexer
+
+        source_path = Path(args.path)
+
+        if not source_path.exists():
+            print(f"Error: File not found: {source_path}")
+            sys.exit(1)
+
+        if not self.db_path.exists():
+            print(f"Error: Database not initialized")
+            print("Run 'hc-mcp init' first")
+            sys.exit(1)
+
+        print(f"Adding: {source_path}")
+
+        # Determine destination
+        dest_name = args.name or source_path.name
+        dest_path = self.sessions_dir / dest_name
+
+        # Check if destination already exists
+        if dest_path.exists() and dest_path != source_path:
+            print(f"Error: File already exists: {dest_path}")
+            sys.exit(1)
+
+        # Copy/Move/Link
+        if source_path != dest_path:
+            if args.link:
+                import os
+                os.symlink(source_path.resolve(), dest_path)
+                print(f"  ✓ Linked to: {dest_path}")
+            elif args.move:
+                import shutil
+                shutil.move(str(source_path), str(dest_path))
+                print(f"  ✓ Moved to: {dest_path}")
+            else:  # copy (default)
+                import shutil
+                shutil.copy2(source_path, dest_path)
+                print(f"  ✓ Copied to: {dest_path}")
+        else:
+            print(f"  ✓ File already in sessions directory")
+
+        # Index
+        print("  ✓ Indexing...")
+        scanner = HttpCatcherScanner.default()
+        indexer = Indexer(self.db, scanner)
+
+        try:
+            result = indexer.index_file(dest_path, force_reindex=True)
+            print(f"    Found: {result['requests_added']} requests")
+            print(f"  ✓ Indexed successfully")
+            print()
+            print(f"File ID: {result['file_id']}")
+            print(f"Requests added: {result['requests_added']}")
+        except Exception as e:
+            print(f"  ✗ Indexing failed: {e}")
+            # Clean up on failure
+            if source_path != dest_path and dest_path.exists():
+                dest_path.unlink()
+            sys.exit(1)
 
     def cmd_files_add_dir(self, args) -> None:
         """Add all session files from directory."""
