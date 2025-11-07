@@ -669,8 +669,7 @@ class Manager:
                 print(f"  {host}: {count} requests")
 
     def cmd_files_reindex(self, args) -> None:
-        """Reindex session file(s) with parallel processing."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        """Reindex session file(s) with async parallel processing."""
         from ..hc_parser import HttpCatcherScanner
         from .indexer import Indexer
         from .file_tracker import FileTracker
@@ -679,71 +678,84 @@ class Manager:
             print(f"Error: Database not found: {self.db_path}")
             sys.exit(1)
 
-        tracker = FileTracker(self.db)
-        scanner = HttpCatcherScanner.default()
+        async def do_reindex():
+            from tqdm.asyncio import tqdm as async_tqdm
 
-        # Determine files to reindex
-        if args.all:
-            files_to_reindex = tracker.list_files()
-            if not files_to_reindex:
-                print("No files to reindex.")
-                return
-            print(f"Reindexing {len(files_to_reindex)} file(s)...")
-        else:
-            if not args.identifier:
-                print("Error: Must specify file ID/name or --all")
-                sys.exit(1)
+            async with Database(self.db_path) as db:
+                tracker = FileTracker(db)
+                scanner = HttpCatcherScanner.default()
 
-            file_id = tracker.resolve_file_id(args.identifier)
-            if file_id is None:
-                print(f"Error: File not found: {args.identifier}")
-                sys.exit(1)
+                # Determine files to reindex
+                if args.all:
+                    files_to_reindex = await tracker.list_files()
+                    if not files_to_reindex:
+                        print("No files to reindex.")
+                        return
+                    print(f"Reindexing {len(files_to_reindex)} file(s)...")
+                else:
+                    if not args.identifier:
+                        print("Error: Must specify file ID/name or --all")
+                        sys.exit(1)
 
-            file_info = tracker.get_file_info(file_id)
-            files_to_reindex = [file_info]
-            print(f"Reindexing: {file_info['filename']}")
+                    file_id = await tracker.resolve_file_id(args.identifier)
+                    if file_id is None:
+                        print(f"Error: File not found: {args.identifier}")
+                        sys.exit(1)
 
-        # Reindex in parallel
-        def reindex_file(file_info: dict) -> tuple[bool, str, int]:
-            try:
-                indexer = Indexer(self.db, scanner)
-                file_path = Path(file_info['file_path'])
+                    file_info = await tracker.get_file_info(file_id)
+                    files_to_reindex = [file_info]
+                    print(f"Reindexing: {file_info['filename']}")
 
-                if not file_path.exists():
-                    return False, f"{file_info['filename']}: File not found", 0
+                # Reindex files in parallel with async
+                async def reindex_file(file_info: dict) -> tuple[bool, str, int]:
+                    try:
+                        indexer = Indexer(db, scanner)
+                        file_path = Path(file_info['file_path'])
 
-                with db_lock:
-                    result = indexer.index_file(file_path, force_reindex=True)
-                return True, f"{file_info['filename']}: {result['requests_added']} requests", result['requests_added']
-            except Exception as e:
-                return False, f"{file_info['filename']}: Error - {e}", 0
+                        if not file_path.exists():
+                            return False, f"{file_info['filename']}: File not found", 0
 
-        # Use CPU count * 2 for I/O bound tasks
-        import os
-        from threading import Lock
-        default_workers = min(os.cpu_count() * 2 if os.cpu_count() else 8, 16)
-        max_workers = self.config.get('indexing', {}).get('parallel_workers', default_workers)
+                        result = await indexer.index_file(file_path, force_reindex=True)
+                        return True, f"{file_info['filename']}: {result['requests_added']} requests", result['requests_added']
+                    except Exception as e:
+                        return False, f"{file_info['filename']}: Error - {e}", 0
 
-        # Lock for database operations
-        db_lock = Lock()
+                # Create tasks for all files
+                tasks = [reindex_file(f) for f in files_to_reindex]
 
+                # Process with progress bar
+                results = []
+                with async_tqdm(total=len(files_to_reindex), desc="Reindexing files", unit="file") as pbar:
+                    for coro in asyncio.as_completed(tasks):
+                        result = await coro
+                        results.append(result)
+                        success, message, req_count = result
+                        status = "✓" if success else "✗"
+                        pbar.set_postfix_str(f"{status} {message[:50]}")
+                        pbar.update(1)
+
+                return results
+
+        results = asyncio.run(do_reindex())
+
+        if not results:
+            return
+
+        # Display summary
+        print()
         success_count = 0
         failed_count = 0
         total_requests = 0
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(reindex_file, f): f for f in files_to_reindex}
+        for success, message, req_count in results:
+            status = "✓" if success else "✗"
+            print(f"  [{status}] {message}")
 
-            for future in as_completed(futures):
-                success, message, req_count = future.result()
-                status = "✓" if success else "✗"
-                print(f"  [{status}] {message}")
-
-                if success:
-                    success_count += 1
-                    total_requests += req_count
-                else:
-                    failed_count += 1
+            if success:
+                success_count += 1
+                total_requests += req_count
+            else:
+                failed_count += 1
 
         print(f"\nSummary:")
         print(f"  Success: {success_count}")
