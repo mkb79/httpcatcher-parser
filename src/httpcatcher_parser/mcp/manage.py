@@ -532,32 +532,36 @@ class Manager:
             print(f"Error: Database not found: {self.db_path}")
             sys.exit(1)
 
-        tracker = FileTracker(self.db)
-        file_id = tracker.resolve_file_id(args.identifier)
+        async def do_remove():
+            async with Database(self.db_path) as db:
+                tracker = FileTracker(db)
+                file_id = await tracker.resolve_file_id(args.identifier)
 
-        if file_id is None:
-            print(f"Error: File not found: {args.identifier}")
-            sys.exit(1)
+                if file_id is None:
+                    print(f"Error: File not found: {args.identifier}")
+                    sys.exit(1)
 
-        file_info = tracker.get_file_info(file_id)
+                file_info = await tracker.get_file_info(file_id)
 
-        print(f"Removing file: {file_info['filename']} (ID: {file_id})")
+                print(f"Removing file: {file_info['filename']} (ID: {file_id})")
 
-        # Remove from DB
-        request_count = tracker.remove_file(file_id)
-        print(f"  ✓ Removed {request_count} requests from database")
-        print(f"  ✓ Removed file record")
+                # Remove from DB
+                request_count = await tracker.remove_file(file_id)
+                print(f"  ✓ Removed {request_count} requests from database")
+                print(f"  ✓ Removed file record")
 
-        # Delete physical file
-        if args.delete_file:
-            file_path = Path(file_info['file_path'])
-            if file_path.exists():
-                file_path.unlink()
-                print(f"  ✓ Deleted file: {file_path}")
-        else:
-            print()
-            print(f"File still exists at: {file_info['file_path']}")
-            print(f"To delete the file, use: hc-mcp files remove {file_id} --delete-file")
+                # Delete physical file
+                if args.delete_file:
+                    file_path = Path(file_info['file_path'])
+                    if file_path.exists():
+                        file_path.unlink()
+                        print(f"  ✓ Deleted file: {file_path}")
+                else:
+                    print()
+                    print(f"File still exists at: {file_info['file_path']}")
+                    print(f"To delete the file, use: hc-mcp files remove {file_id} --delete-file")
+
+        asyncio.run(do_remove())
 
     def cmd_files_info(self, args) -> None:
         """Show detailed file information."""
@@ -568,105 +572,110 @@ class Manager:
             print(f"Error: Database not found: {self.db_path}")
             sys.exit(1)
 
-        tracker = FileTracker(self.db)
-        file_id = tracker.resolve_file_id(args.identifier)
+        async def do_info():
+            async with Database(self.db_path) as db:
+                tracker = FileTracker(db)
+                file_id = await tracker.resolve_file_id(args.identifier)
 
-        if file_id is None:
-            print(f"Error: File not found: {args.identifier}")
-            sys.exit(1)
+                if file_id is None:
+                    print(f"Error: File not found: {args.identifier}")
+                    sys.exit(1)
 
-        file_info = tracker.get_file_info(file_id)
+                file_info = await tracker.get_file_info(file_id)
 
-        # Get additional statistics
-        cursor = self.db.conn.execute(
-            """
-            SELECT
-                status_code,
-                COUNT(*) as count
-            FROM requests
-            WHERE file_id = ?
-            GROUP BY status_code
-            ORDER BY count DESC
-            """,
-            (file_id,)
-        )
-        status_breakdown = list(cursor.fetchall())
+                # Get additional statistics
+                conn = await db.connect()
+                cursor = await conn.execute(
+                    """
+                    SELECT
+                        status_code,
+                        COUNT(*) as count
+                    FROM requests
+                    WHERE file_id = ?
+                    GROUP BY status_code
+                    ORDER BY count DESC
+                    """,
+                    (file_id,)
+                )
+                status_breakdown = [row async for row in cursor]
 
-        cursor = self.db.conn.execute(
-            """
-            SELECT
-                resp_content_category,
-                COUNT(*) as count
-            FROM requests
-            WHERE file_id = ?
-            GROUP BY resp_content_category
-            ORDER BY count DESC
-            """,
-            (file_id,)
-        )
-        content_breakdown = list(cursor.fetchall())
+                cursor = await conn.execute(
+                    """
+                    SELECT
+                        resp_content_category,
+                        COUNT(*) as count
+                    FROM requests
+                    WHERE file_id = ?
+                    GROUP BY resp_content_category
+                    ORDER BY count DESC
+                    """,
+                    (file_id,)
+                )
+                content_breakdown = [row async for row in cursor]
 
-        cursor = self.db.conn.execute(
-            """
-            SELECT
-                MIN(req_timestamp) as first_ts,
-                MAX(resp_timestamp) as last_ts
-            FROM requests
-            WHERE file_id = ?
-            """,
-            (file_id,)
-        )
-        time_range = cursor.fetchone()
+                cursor = await conn.execute(
+                    """
+                    SELECT
+                        MIN(req_timestamp) as first_ts,
+                        MAX(resp_timestamp) as last_ts
+                    FROM requests
+                    WHERE file_id = ?
+                    """,
+                    (file_id,)
+                )
+                time_range = await cursor.fetchone()
 
-        cursor = self.db.conn.execute(
-            """
-            SELECT host, COUNT(*) as count
-            FROM requests
-            WHERE file_id = ?
-            GROUP BY host
-            ORDER BY count DESC
-            LIMIT 10
-            """,
-            (file_id,)
-        )
-        top_hosts = list(cursor.fetchall())
+                cursor = await conn.execute(
+                    """
+                    SELECT host, COUNT(*) as count
+                    FROM requests
+                    WHERE file_id = ?
+                    GROUP BY host
+                    ORDER BY count DESC
+                    LIMIT 10
+                    """,
+                    (file_id,)
+                )
+                top_hosts = [row async for row in cursor]
 
-        # Print info
-        print(f"File: {file_info['filename']}")
-        print(f"Path: {file_info['file_path']}")
-        print(f"ID: {file_info['id']}")
-        print(f"Size: {file_info['file_size'] / (1024*1024):.1f} MB")
-        print(f"SHA256: {file_info['file_hash'][:16]}...")
-        print()
-        indexed_dt = datetime.fromtimestamp(file_info['indexed_at'])
-        print(f"Indexed: {indexed_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Requests: {file_info['request_count']}")
-        print(f"Status: {file_info['status']}")
+                # Print info
+                print(f"File: {file_info['filename']}")
+                print(f"Path: {file_info['file_path']}")
+                print(f"ID: {file_info['id']}")
+                print(f"Size: {file_info['file_size'] / (1024*1024):.1f} MB")
+                print(f"SHA256: {file_info['file_hash'][:16]}...")
+                print()
+                indexed_dt = datetime.fromtimestamp(file_info['indexed_at'])
+                print(f"Indexed: {indexed_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"Requests: {file_info['request_count']}")
+                print(f"Status: {file_info['status']}")
 
-        if status_breakdown:
-            print("\nStatus Code Breakdown:")
-            for status, count in status_breakdown[:5]:
-                status_str = f"{status}xx" if status is None else str(status)
-                print(f"  {status_str}: {count}")
+                if status_breakdown:
+                    print("\nStatus Code Breakdown:")
+                    for status, count in status_breakdown[:5]:
+                        status_str = f"{status}xx" if status is None else str(status)
+                        print(f"  {status_str}: {count}")
 
-        if content_breakdown:
-            print("\nContent Types:")
-            for ct, count in content_breakdown[:5]:
-                print(f"  {ct or 'unknown'}: {count}")
+                if content_breakdown:
+                    print("\nContent Types:")
+                    for ct, count in content_breakdown[:5]:
+                        print(f"  {ct or 'unknown'}: {count}")
 
-        if time_range and time_range[0] and time_range[1]:
-            first_ts = datetime.fromtimestamp(time_range[0] / 1000)
-            last_ts = datetime.fromtimestamp(time_range[1] / 1000)
-            duration = (time_range[1] - time_range[0]) / 1000
-            print("\nTime Range:")
-            print(f"  First: {first_ts.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"  Last: {last_ts.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"  Duration: {duration:.1f}s")
+                if time_range and time_range[0] and time_range[1]:
+                    first_ts = datetime.fromtimestamp(time_range[0] / 1000)
+                    last_ts = datetime.fromtimestamp(time_range[1] / 1000)
+                    duration = (time_range[1] - time_range[0]) / 1000
+                    print("\nTime Range:")
+                    print(f"  First: {first_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"  Last: {last_ts.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"  Duration: {duration:.1f}s")
 
-        if top_hosts:
-            print("\nTop Hosts:")
-            for host, count in top_hosts:
-                print(f"  {host}: {count} requests")
+                if top_hosts:
+                    print("\nTop Hosts:")
+                    for host, count in top_hosts:
+                        print(f"  {host}: {count} requests")
+
+        asyncio.run(do_info())
 
     def cmd_files_reindex(self, args) -> None:
         """Reindex session file(s) with async parallel processing."""
@@ -772,60 +781,64 @@ class Manager:
             print(f"Error: Database not found: {self.db_path}")
             sys.exit(1)
 
-        print("Checking consistency...")
-        tracker = FileTracker(self.db)
-        issues = tracker.check_consistency()
+        async def do_check():
+            async with Database(self.db_path) as db:
+                print("Checking consistency...")
+                tracker = FileTracker(db)
+                issues = await tracker.check_consistency()
 
-        if not any(issues.values()):
-            print("✓ No issues found")
-            return
+                if not any(issues.values()):
+                    print("✓ No issues found")
+                    return
 
-        print("\nIssues found:\n")
+                print("\nIssues found:\n")
 
-        # Orphaned
-        if issues['orphaned']:
-            print("Orphaned (in DB, but file missing):")
-            for f in issues['orphaned']:
-                print(f"  - {f['filename']} (ID: {f['id']}, {f['request_count']} requests)")
-            print()
+                # Orphaned
+                if issues['orphaned']:
+                    print("Orphaned (in DB, but file missing):")
+                    for f in issues['orphaned']:
+                        print(f"  - {f['filename']} (ID: {f['id']}, {f['request_count']} requests)")
+                    print()
 
-        # Modified
-        if issues['modified']:
-            print("Modified (file changed):")
-            for f in issues['modified']:
-                print(f"  - {f['filename']} (ID: {f['id']})")
-                print(f"    DB Hash: {f['db_hash'][:12]}...")
-                print(f"    File Hash: {f['file_hash'][:12]}...")
-            print()
+                # Modified
+                if issues['modified']:
+                    print("Modified (file changed):")
+                    for f in issues['modified']:
+                        print(f"  - {f['filename']} (ID: {f['id']})")
+                        print(f"    DB Hash: {f['db_hash'][:12]}...")
+                        print(f"    File Hash: {f['file_hash'][:12]}...")
+                    print()
 
-        print("Summary:")
-        print(f"  Orphaned: {len(issues['orphaned'])} files")
-        print(f"  Modified: {len(issues['modified'])} files")
-        print()
-        print("Run with --fix to automatically fix these issues.")
+                print("Summary:")
+                print(f"  Orphaned: {len(issues['orphaned'])} files")
+                print(f"  Modified: {len(issues['modified'])} files")
+                print()
+                print("Run with --fix to automatically fix these issues.")
 
-        if args.fix:
-            print("\nFixing issues...")
+                if args.fix:
+                    print("\nFixing issues...")
 
-            # Remove orphaned
-            for f in issues['orphaned']:
-                tracker.remove_file(f['id'])
-                print(f"  ✓ Removed orphaned: {f['filename']}")
+                    # Remove orphaned
+                    for f in issues['orphaned']:
+                        await tracker.remove_file(f['id'])
+                        print(f"  ✓ Removed orphaned: {f['filename']}")
 
-            # Reindex modified
-            if issues['modified']:
-                scanner = HttpCatcherScanner.default()
-                indexer = Indexer(self.db, scanner)
+                    # Reindex modified
+                    if issues['modified']:
+                        scanner = HttpCatcherScanner.default()
+                        indexer = Indexer(db, scanner)
 
-                for f in issues['modified']:
-                    try:
-                        file_path = Path(f['file_path'])
-                        result = indexer.index_file(file_path, force_reindex=True)
-                        print(f"  ✓ Reindexed: {f['filename']} ({result['requests_added']} requests)")
-                    except Exception as e:
-                        print(f"  ✗ Failed to reindex {f['filename']}: {e}")
+                        for f in issues['modified']:
+                            try:
+                                file_path = Path(f['file_path'])
+                                result = await indexer.index_file(file_path, force_reindex=True)
+                                print(f"  ✓ Reindexed: {f['filename']} ({result['requests_added']} requests)")
+                            except Exception as e:
+                                print(f"  ✗ Failed to reindex {f['filename']}: {e}")
 
-            print("\n✓ Issues fixed")
+                    print("\n✓ Issues fixed")
+
+        asyncio.run(do_check())
 
     # ====== CONFIG Commands ======
     def cmd_config_get(self, args) -> None:
