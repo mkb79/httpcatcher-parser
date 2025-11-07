@@ -243,6 +243,35 @@ hc-mcp files add-dir /path/to/hc_sessions/ --copy
 
 All commands work without threading errors or warnings!
 
+## Production Test Results 🎉
+
+**Test**: Importing 25 real session files with `asyncio.gather()` parallel processing
+
+### Initial Results (with race condition)
+- ✅ 22 files succeeded (9,475 requests)
+- ❌ 3 files failed with "UNIQUE constraint failed: header_keys.name"
+- **Issue**: Race condition in KeyIndexer when multiple coroutines tried to create same key
+
+### After Fix (INSERT OR IGNORE)
+- ✅ All files import successfully without errors
+- ✅ No threading locks needed
+- ✅ True parallel I/O processing
+- ✅ Race-condition safe key creation
+
+### Fix Applied
+Changed `KeyIndexer.get_or_create_*_key()` methods to use:
+```python
+# INSERT OR IGNORE to handle concurrent key creation
+await conn.execute(
+    "INSERT OR IGNORE INTO header_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
+    (name, name.lower())
+)
+# Always SELECT to get ID (whether we inserted or it existed)
+cursor = await conn.execute("SELECT id FROM header_keys WHERE name = ?", (name,))
+```
+
+This ensures multiple coroutines can safely try to create the same key without constraint violations.
+
 ## Performance Comparison
 
 ### Before (Threading + Lock)
@@ -251,11 +280,13 @@ All commands work without threading errors or warnings!
 - Occasional "bad parameter" errors
 - Failed on ~30% of 25-file batch
 
-### After (Async/Await)
-- No locking needed - single-threaded
-- True I/O concurrency without GIL issues
-- No threading errors
-- Expected: 20-40% faster with better reliability
+### After (Async/Await + Race Condition Fix)
+- ✅ No locking needed - single-threaded async
+- ✅ True I/O concurrency without GIL issues
+- ✅ No threading errors
+- ✅ No race condition errors
+- ✅ Successfully processes 25+ files in parallel
+- ✅ 9,475+ requests indexed without issues
 
 ## Implementation Notes
 
