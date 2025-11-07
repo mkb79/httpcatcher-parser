@@ -100,6 +100,35 @@ class FileTracker:
 
         return file_id
 
+    def find_duplicate_by_hash(self, file_hash: str) -> Optional[dict]:
+        """Check if a file with the same hash already exists.
+
+        Args:
+            file_hash: SHA256 hash of file
+
+        Returns:
+            File info dict if duplicate found, None otherwise
+        """
+        cursor = self.db.conn.execute(
+            """
+            SELECT id, file_path, file_size, indexed_at
+            FROM session_files
+            WHERE file_hash = ?
+            """,
+            (file_hash,)
+        )
+        row = cursor.fetchone()
+
+        if row:
+            return {
+                'id': row[0],
+                'file_path': row[1],
+                'file_size': row[2],
+                'indexed_at': row[3],
+                'file_hash': file_hash
+            }
+        return None
+
     def remove_file(self, file_id: int) -> int:
         """Remove file from tracking (cascade deletes all requests).
 

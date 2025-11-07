@@ -288,13 +288,33 @@ class Manager:
 
         print(f"Adding: {source_path}")
 
+        # Check for duplicate by hash
+        import hashlib
+        try:
+            sha256 = hashlib.sha256()
+            with open(source_path, 'rb') as f:
+                while chunk := f.read(8192):
+                    sha256.update(chunk)
+            file_hash = sha256.hexdigest()
+
+            from .file_tracker import FileTracker
+            tracker = FileTracker(self.db)
+            duplicate = tracker.find_duplicate_by_hash(file_hash)
+            if duplicate:
+                print(f"Error: File is a duplicate of already indexed file:")
+                print(f"  Existing: {duplicate['file_path']}")
+                print(f"  Hash: {file_hash}")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Warning: Could not check for duplicates: {e}")
+
         # Determine destination
         dest_name = args.name or source_path.name
         dest_path = self.sessions_dir / dest_name
 
         # Check if destination already exists
         if dest_path.exists() and dest_path != source_path:
-            print(f"Error: File already exists: {dest_path}")
+            print(f"Error: File already exists at destination: {dest_path}")
             sys.exit(1)
 
         # Copy/Move/Link
@@ -367,12 +387,31 @@ class Manager:
         def process_file(source_path: Path) -> tuple[bool, str, int]:
             """Process a single file. Returns (success, message, request_count)"""
             try:
+                # Check for duplicates by hash first
+                import hashlib
+                file_hash = None
+                try:
+                    sha256 = hashlib.sha256()
+                    with open(source_path, 'rb') as f:
+                        while chunk := f.read(8192):
+                            sha256.update(chunk)
+                    file_hash = sha256.hexdigest()
+                except Exception:
+                    pass
+
+                if file_hash:
+                    from .file_tracker import FileTracker
+                    tracker_check = FileTracker(self.db)
+                    duplicate = tracker_check.find_duplicate_by_hash(file_hash)
+                    if duplicate:
+                        return False, f"{source_path.name}: duplicate (already indexed as {Path(duplicate['file_path']).name})", 0
+
                 dest_name = source_path.name
                 dest_path = self.sessions_dir / dest_name
 
-                # Check if already exists
+                # Check if destination file already exists
                 if dest_path.exists() and dest_path != source_path:
-                    return False, f"{source_path.name}: already exists", 0
+                    return False, f"{source_path.name}: already exists in sessions directory", 0
 
                 # Copy/Move/Link
                 if source_path != dest_path:
