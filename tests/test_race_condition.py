@@ -30,10 +30,12 @@ async def test_concurrent_key_creation():
                 "Authorization",
                 "User-Agent",
                 "Accept",
-                "Cookie"
+                "Cookie",
             ]
 
-            print(f"✓ Testing concurrent creation of {len(test_keys)} keys from 3 indexers...")
+            print(
+                f"✓ Testing concurrent creation of {len(test_keys)} keys from 3 indexers..."
+            )
 
             # All 3 indexers try to get/create the same keys at the same time
             tasks = []
@@ -45,10 +47,13 @@ async def test_concurrent_key_creation():
             # Execute all concurrently - this would cause race conditions before the fix
             try:
                 results = await asyncio.gather(*tasks)
-                print(f"✓ Successfully created/retrieved {len(results)} key IDs concurrently")
+                print(
+                    f"✓ Successfully created/retrieved {len(results)} key IDs concurrently"
+                )
             except Exception as e:
                 print(f"✗ FAILED: {e}")
                 import traceback
+
                 traceback.print_exc()
                 return False
 
@@ -71,7 +76,9 @@ async def test_concurrent_key_creation():
                 id3 = await indexer3.get_or_create_header_key(key)
 
                 if id1 != id2 or id2 != id3:
-                    print(f"✗ FAILED: Key '{key}' has different IDs: {id1}, {id2}, {id3}")
+                    print(
+                        f"✗ FAILED: Key '{key}' has different IDs: {id1}, {id2}, {id3}"
+                    )
                     return False
 
             print("✓ All indexers agree on key IDs")
@@ -88,7 +95,9 @@ async def test_concurrent_key_creation():
 
             try:
                 results = await asyncio.gather(*tasks)
-                print(f"✓ Successfully created/retrieved {len(results)} cookie key IDs concurrently")
+                print(
+                    f"✓ Successfully created/retrieved {len(results)} cookie key IDs concurrently"
+                )
             except Exception as e:
                 print(f"✗ FAILED: {e}")
                 return False
@@ -103,15 +112,16 @@ async def test_concurrent_key_creation():
 
             print(f"✓ Database has exactly {count} unique cookie keys (correct!)")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SUCCESS: Race condition fix works correctly!")
-    print("="*60)
+    print("=" * 60)
     print("\nThe KeyIndexer can now safely handle concurrent key creation")
     print("across multiple parallel file processing tasks.")
     return True
 
 
 if __name__ == "__main__":
+
     async def main():
         try:
             success = await test_concurrent_key_creation()
@@ -119,6 +129,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n✗ Test failed: {e}")
             import traceback
+
             traceback.print_exc()
             return 1
 

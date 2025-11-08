@@ -51,7 +51,7 @@ class Manager:
     def _load_config(self) -> dict:
         """Load configuration from file."""
         if self.config_path.exists():
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 return json.load(f)
         return self._default_config()
 
@@ -64,23 +64,14 @@ class Manager:
             "auto_index": True,
             "max_file_size_mb": 500,
             "log_level": "info",
-            "server": {
-                "port": None,
-                "host": None
-            },
-            "indexing": {
-                "batch_size": 1000,
-                "parallel_workers": 4
-            },
-            "query": {
-                "default_limit": 100,
-                "max_limit": 10000
-            }
+            "server": {"port": None, "host": None},
+            "indexing": {"batch_size": 1000, "parallel_workers": 4},
+            "query": {"default_limit": 100, "max_limit": 10000},
         }
 
     def _save_config(self) -> None:
         """Save configuration to file."""
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             json.dump(self.config, f, indent=2)
 
     # ====== INIT Command ======
@@ -95,11 +86,11 @@ class Manager:
             sys.exit(1)
 
         # Set log level
-        log_level = getattr(args, 'log_level', 'info')
+        log_level = getattr(args, "log_level", "info")
 
         # Override data dir if db-path provided
         data_dir = self.data_dir
-        if hasattr(args, 'db_path') and args.db_path:
+        if hasattr(args, "db_path") and args.db_path:
             data_dir = args.db_path.parent
 
         # Start server
@@ -148,6 +139,7 @@ class Manager:
 
         async def get_stats():
             from .database_backup import Database as SyncDatabase
+
             db = SyncDatabase(self.db_path)
             return db.get_stats()
 
@@ -155,7 +147,7 @@ class Manager:
         size_mb = self.db_path.stat().st_size / (1024 * 1024)
 
         print(f"Database: {self.db_path}")
-        print(f"Status: OK")
+        print("Status: OK")
         print(f"Size: {size_mb:.1f} MB")
         print(f"Total requests: {stats['total_requests']:,}")
         print(f"Total files: {stats['total_files']:,}")
@@ -171,6 +163,7 @@ class Manager:
         size_before = self.db_path.stat().st_size
 
         print("Running VACUUM...")
+
         async def vacuum():
             async with Database(self.db_path) as db:
                 await db.vacuum()
@@ -183,9 +176,9 @@ class Manager:
         saved_pct = (saved / size_before * 100) if size_before > 0 else 0
 
         print("✓ Database optimized")
-        print(f"  Before: {size_before / (1024*1024):.1f} MB")
-        print(f"  After: {size_after / (1024*1024):.1f} MB")
-        print(f"  Saved: {saved / (1024*1024):.1f} MB ({saved_pct:.1f}%)")
+        print(f"  Before: {size_before / (1024 * 1024):.1f} MB")
+        print(f"  After: {size_after / (1024 * 1024):.1f} MB")
+        print(f"  Saved: {saved / (1024 * 1024):.1f} MB ({saved_pct:.1f}%)")
 
     def cmd_db_stats(self, args) -> None:
         """Show detailed database statistics."""
@@ -195,6 +188,7 @@ class Manager:
 
         async def get_stats():
             from .database_backup import Database as SyncDatabase
+
             db = SyncDatabase(self.db_path)
             return db.get_stats()
 
@@ -222,7 +216,7 @@ class Manager:
             print(f"Session files in {self.sessions_dir} will NOT be deleted.")
             print()
             response = input("Continue? [y/N]: ")
-            if response.lower() != 'y':
+            if response.lower() != "y":
                 print("Cancelled.")
                 return
 
@@ -260,40 +254,47 @@ class Manager:
             print("No files indexed yet.")
             return
 
-        if args.format == 'json':
+        if args.format == "json":
             import json
+
             print(json.dumps(files, indent=2))
             return
 
         # Sort files
-        if args.sort == 'name':
-            files.sort(key=lambda f: f['filename'])
-        elif args.sort == 'size':
-            files.sort(key=lambda f: f['file_size'], reverse=True)
-        elif args.sort == 'requests':
-            files.sort(key=lambda f: f['request_count'], reverse=True)
+        if args.sort == "name":
+            files.sort(key=lambda f: f["filename"])
+        elif args.sort == "size":
+            files.sort(key=lambda f: f["file_size"], reverse=True)
+        elif args.sort == "requests":
+            files.sort(key=lambda f: f["request_count"], reverse=True)
         # 'date' is default (already sorted by indexed_at DESC)
 
         # Table format
-        print(f"{'ID':<6} {'Filename':<30} {'Size':>10} {'Requests':>10} {'Indexed At':<20}")
+        print(
+            f"{'ID':<6} {'Filename':<30} {'Size':>10} {'Requests':>10} {'Indexed At':<20}"
+        )
         print("─" * 80)
 
         total_size = 0
         total_requests = 0
 
         for f in files:
-            size_mb = f['file_size'] / (1024 * 1024)
-            total_size += f['file_size']
-            total_requests += f['request_count']
+            size_mb = f["file_size"] / (1024 * 1024)
+            total_size += f["file_size"]
+            total_requests += f["request_count"]
 
             # Format timestamp
-            indexed_dt = datetime.fromtimestamp(f['indexed_at'])
+            indexed_dt = datetime.fromtimestamp(f["indexed_at"])
             indexed_str = indexed_dt.strftime("%Y-%m-%d %H:%M")
 
-            print(f"{f['id']:<6} {f['filename']:<30} {size_mb:>8.1f} MB {f['request_count']:>10,} {indexed_str:<20}")
+            print(
+                f"{f['id']:<6} {f['filename']:<30} {size_mb:>8.1f} MB {f['request_count']:>10,} {indexed_str:<20}"
+            )
 
         print("─" * 80)
-        print(f"Total: {len(files)} files, {total_requests:,} requests, {total_size/(1024*1024):.1f} MB")
+        print(
+            f"Total: {len(files)} files, {total_requests:,} requests, {total_size / (1024 * 1024):.1f} MB"
+        )
 
     def cmd_files_add(self, args) -> None:
         """Add a session file."""
@@ -310,7 +311,7 @@ class Manager:
             sys.exit(1)
 
         if not self.db_path.exists():
-            print(f"Error: Database not initialized")
+            print("Error: Database not initialized")
             print("Run 'hc-mcp init' first")
             sys.exit(1)
 
@@ -324,14 +325,16 @@ class Manager:
 
                 # Check for duplicate by hash
                 try:
-                    with tqdm(total=1, desc="Computing hash", unit="file", leave=False) as pbar:
+                    with tqdm(
+                        total=1, desc="Computing hash", unit="file", leave=False
+                    ) as pbar:
                         file_hash = await compute_file_hash(source_path)
                         pbar.update(1)
 
                     tracker = FileTracker(db)
                     duplicate = await tracker.find_duplicate_by_hash(file_hash)
                     if duplicate:
-                        print(f"Error: File is a duplicate of already indexed file:")
+                        print("Error: File is a duplicate of already indexed file:")
                         print(f"  Existing: {duplicate['file_path']}")
                         print(f"  Hash: {file_hash}")
                         sys.exit(1)
@@ -349,7 +352,9 @@ class Manager:
 
                 # Copy/Move/Link
                 if source_path != dest_path:
-                    with tqdm(total=1, desc="Copying file", unit="file", leave=False) as pbar:
+                    with tqdm(
+                        total=1, desc="Copying file", unit="file", leave=False
+                    ) as pbar:
                         if args.link:
                             os.symlink(source_path.resolve(), dest_path)
                             print(f"  ✓ Linked to: {dest_path}")
@@ -361,18 +366,20 @@ class Manager:
                             print(f"  ✓ Copied to: {dest_path}")
                         pbar.update(1)
                 else:
-                    print(f"  ✓ File already in sessions directory")
+                    print("  ✓ File already in sessions directory")
 
                 # Index
                 scanner = HttpCatcherScanner.default()
                 indexer = Indexer(db, scanner)
 
                 try:
-                    with tqdm(total=1, desc="Indexing file", unit="file", leave=False) as pbar:
+                    with tqdm(
+                        total=1, desc="Indexing file", unit="file", leave=False
+                    ) as pbar:
                         result = await indexer.index_file(dest_path, force_reindex=True)
                         pbar.update(1)
 
-                    print(f"  ✓ Indexed successfully")
+                    print("  ✓ Indexed successfully")
                     print()
                     print(f"File ID: {result['file_id']}")
                     print(f"Requests added: {result['requests_added']}")
@@ -403,7 +410,7 @@ class Manager:
             sys.exit(1)
 
         if not self.db_path.exists():
-            print(f"Error: Database not initialized")
+            print("Error: Database not initialized")
             print("Run 'hc-mcp init' first")
             sys.exit(1)
 
@@ -440,7 +447,12 @@ class Manager:
                             tracker = FileTracker(db)
                             duplicate = await tracker.find_duplicate_by_hash(file_hash)
                             if duplicate:
-                                return False, f"duplicate (already indexed as {Path(duplicate['file_path']).name})", 0, filename
+                                return (
+                                    False,
+                                    f"duplicate (already indexed as {Path(duplicate['file_path']).name})",
+                                    0,
+                                    filename,
+                                )
                         except Exception:
                             pass
 
@@ -449,7 +461,12 @@ class Manager:
 
                         # Check if destination file already exists
                         if dest_path.exists() and dest_path != source_path:
-                            return False, "already exists in sessions directory", 0, filename
+                            return (
+                                False,
+                                "already exists in sessions directory",
+                                0,
+                                filename,
+                            )
 
                         # Copy/Move/Link (sync file operations)
                         if source_path != dest_path:
@@ -465,7 +482,12 @@ class Manager:
                         indexer = Indexer(db, scanner)
                         result = await indexer.index_file(dest_path, force_reindex=True)
 
-                        return True, f"{result['requests_added']} requests", result['requests_added'], filename
+                        return (
+                            True,
+                            f"{result['requests_added']} requests",
+                            result["requests_added"],
+                            filename,
+                        )
                     except Exception as e:
                         return False, f"Error - {e}", 0, filename
 
@@ -474,7 +496,9 @@ class Manager:
 
                 # Process with progress bar using asyncio.as_completed for real-time updates
                 results = []
-                with async_tqdm(total=len(files), desc="Processing files", unit="file") as pbar:
+                with async_tqdm(
+                    total=len(files), desc="Processing files", unit="file"
+                ) as pbar:
                     for coro in asyncio.as_completed(tasks):
                         result = await coro
                         results.append(result)
@@ -518,7 +542,7 @@ class Manager:
                 if not success:
                     print(f"  [✗] {filename}: {message}")
 
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(f"  Added: {success_count} files")
         if failed_count > 0:
             print(f"  Skipped: {failed_count} files")
@@ -548,18 +572,20 @@ class Manager:
                 # Remove from DB
                 request_count = await tracker.remove_file(file_id)
                 print(f"  ✓ Removed {request_count} requests from database")
-                print(f"  ✓ Removed file record")
+                print("  ✓ Removed file record")
 
                 # Delete physical file
                 if args.delete_file:
-                    file_path = Path(file_info['file_path'])
+                    file_path = Path(file_info["file_path"])
                     if file_path.exists():
                         file_path.unlink()
                         print(f"  ✓ Deleted file: {file_path}")
                 else:
                     print()
                     print(f"File still exists at: {file_info['file_path']}")
-                    print(f"To delete the file, use: hc-mcp files remove {file_id} --delete-file")
+                    print(
+                        f"To delete the file, use: hc-mcp files remove {file_id} --delete-file"
+                    )
 
         asyncio.run(do_remove())
 
@@ -595,7 +621,7 @@ class Manager:
                     GROUP BY status_code
                     ORDER BY count DESC
                     """,
-                    (file_id,)
+                    (file_id,),
                 )
                 status_breakdown = [row async for row in cursor]
 
@@ -609,7 +635,7 @@ class Manager:
                     GROUP BY resp_content_category
                     ORDER BY count DESC
                     """,
-                    (file_id,)
+                    (file_id,),
                 )
                 content_breakdown = [row async for row in cursor]
 
@@ -621,7 +647,7 @@ class Manager:
                     FROM requests
                     WHERE file_id = ?
                     """,
-                    (file_id,)
+                    (file_id,),
                 )
                 time_range = await cursor.fetchone()
 
@@ -634,7 +660,7 @@ class Manager:
                     ORDER BY count DESC
                     LIMIT 10
                     """,
-                    (file_id,)
+                    (file_id,),
                 )
                 top_hosts = [row async for row in cursor]
 
@@ -642,10 +668,10 @@ class Manager:
                 print(f"File: {file_info['filename']}")
                 print(f"Path: {file_info['file_path']}")
                 print(f"ID: {file_info['id']}")
-                print(f"Size: {file_info['file_size'] / (1024*1024):.1f} MB")
+                print(f"Size: {file_info['file_size'] / (1024 * 1024):.1f} MB")
                 print(f"SHA256: {file_info['file_hash'][:16]}...")
                 print()
-                indexed_dt = datetime.fromtimestamp(file_info['indexed_at'])
+                indexed_dt = datetime.fromtimestamp(file_info["indexed_at"])
                 print(f"Indexed: {indexed_dt.strftime('%Y-%m-%d %H:%M:%S')}")
                 print(f"Requests: {file_info['request_count']}")
                 print(f"Status: {file_info['status']}")
@@ -719,13 +745,17 @@ class Manager:
                 async def reindex_file(file_info: dict) -> tuple[bool, str, int]:
                     try:
                         indexer = Indexer(db, scanner)
-                        file_path = Path(file_info['file_path'])
+                        file_path = Path(file_info["file_path"])
 
                         if not file_path.exists():
                             return False, f"{file_info['filename']}: File not found", 0
 
                         result = await indexer.index_file(file_path, force_reindex=True)
-                        return True, f"{file_info['filename']}: {result['requests_added']} requests", result['requests_added']
+                        return (
+                            True,
+                            f"{file_info['filename']}: {result['requests_added']} requests",
+                            result["requests_added"],
+                        )
                     except Exception as e:
                         return False, f"{file_info['filename']}: Error - {e}", 0
 
@@ -734,7 +764,9 @@ class Manager:
 
                 # Process with progress bar
                 results = []
-                with async_tqdm(total=len(files_to_reindex), desc="Reindexing files", unit="file") as pbar:
+                with async_tqdm(
+                    total=len(files_to_reindex), desc="Reindexing files", unit="file"
+                ) as pbar:
                     for coro in asyncio.as_completed(tasks):
                         result = await coro
                         results.append(result)
@@ -766,7 +798,7 @@ class Manager:
             else:
                 failed_count += 1
 
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(f"  Success: {success_count}")
         print(f"  Failed: {failed_count}")
         print(f"  Total requests: {total_requests:,}")
@@ -794,16 +826,18 @@ class Manager:
                 print("\nIssues found:\n")
 
                 # Orphaned
-                if issues['orphaned']:
+                if issues["orphaned"]:
                     print("Orphaned (in DB, but file missing):")
-                    for f in issues['orphaned']:
-                        print(f"  - {f['filename']} (ID: {f['id']}, {f['request_count']} requests)")
+                    for f in issues["orphaned"]:
+                        print(
+                            f"  - {f['filename']} (ID: {f['id']}, {f['request_count']} requests)"
+                        )
                     print()
 
                 # Modified
-                if issues['modified']:
+                if issues["modified"]:
                     print("Modified (file changed):")
-                    for f in issues['modified']:
+                    for f in issues["modified"]:
                         print(f"  - {f['filename']} (ID: {f['id']})")
                         print(f"    DB Hash: {f['db_hash'][:12]}...")
                         print(f"    File Hash: {f['file_hash'][:12]}...")
@@ -819,20 +853,24 @@ class Manager:
                     print("\nFixing issues...")
 
                     # Remove orphaned
-                    for f in issues['orphaned']:
-                        await tracker.remove_file(f['id'])
+                    for f in issues["orphaned"]:
+                        await tracker.remove_file(f["id"])
                         print(f"  ✓ Removed orphaned: {f['filename']}")
 
                     # Reindex modified
-                    if issues['modified']:
+                    if issues["modified"]:
                         scanner = HttpCatcherScanner.default()
                         indexer = Indexer(db, scanner)
 
-                        for f in issues['modified']:
+                        for f in issues["modified"]:
                             try:
-                                file_path = Path(f['file_path'])
-                                result = await indexer.index_file(file_path, force_reindex=True)
-                                print(f"  ✓ Reindexed: {f['filename']} ({result['requests_added']} requests)")
+                                file_path = Path(f["file_path"])
+                                result = await indexer.index_file(
+                                    file_path, force_reindex=True
+                                )
+                                print(
+                                    f"  ✓ Reindexed: {f['filename']} ({result['requests_added']} requests)"
+                                )
                             except Exception as e:
                                 print(f"  ✗ Failed to reindex {f['filename']}: {e}")
 
@@ -872,7 +910,7 @@ class Manager:
     # ====== SEARCH Commands ======
     def cmd_search(self, args) -> None:
         """Search requests with filters."""
-        from .query_engine import QueryEngine, SearchFilters, HeaderFilter, CookieFilter, MatchMode
+        from .query_engine import QueryEngine, SearchFilters, HeaderFilter, CookieFilter
 
         if not self.db_path.exists():
             print("Error: Database not initialized")
@@ -887,16 +925,16 @@ class Manager:
             path=args.path,
             limit=args.limit,
             offset=args.offset,
-            sort_desc=not args.asc
+            sort_desc=not args.asc,
         )
 
         # Map sort options
         sort_map = {
-            'time': 'req_timestamp',
-            'duration': 'duration_ms',
-            'status': 'status_code'
+            "time": "req_timestamp",
+            "duration": "duration_ms",
+            "status": "status_code",
         }
-        filters.sort_by = sort_map.get(args.sort, 'req_timestamp')
+        filters.sort_by = sort_map.get(args.sort, "req_timestamp")
 
         # Status filters
         if args.status:
@@ -909,22 +947,20 @@ class Manager:
         # Header filters
         if args.header:
             for h in args.header:
-                if ':' in h:
-                    key, value = h.split(':', 1)
+                if ":" in h:
+                    key, value = h.split(":", 1)
                     hf = HeaderFilter(
-                        key=key if key else None,
-                        value=value if value else None
+                        key=key if key else None, value=value if value else None
                     )
                     filters.headers.append(hf)
 
         # Cookie filters
         if args.cookie:
             for c in args.cookie:
-                if ':' in c:
-                    key, value = c.split(':', 1)
+                if ":" in c:
+                    key, value = c.split(":", 1)
                     cf = CookieFilter(
-                        key=key if key else None,
-                        value=value if value else None
+                        key=key if key else None, value=value if value else None
                     )
                     filters.cookies.append(cf)
 
@@ -942,14 +978,15 @@ class Manager:
 
         results, total = asyncio.run(do_search())
 
-        if args.format == 'json':
+        if args.format == "json":
             import json
+
             output = {
-                'total': total,
-                'count': len(results),
-                'offset': args.offset,
-                'limit': args.limit,
-                'results': results
+                "total": total,
+                "count": len(results),
+                "offset": args.offset,
+                "limit": args.limit,
+                "results": results,
             }
             print(json.dumps(output, indent=2))
         else:
@@ -966,15 +1003,17 @@ class Manager:
 
             # Print rows
             for r in results:
-                req_id = str(r['id'])
-                method = r['method'] or 'N/A'
-                status = str(r['status_code']) if r['status_code'] else 'N/A'
-                host = (r['host'] or 'N/A')[:29]
-                path = (r['path'] or 'N/A')[:39]
+                req_id = str(r["id"])
+                method = r["method"] or "N/A"
+                status = str(r["status_code"]) if r["status_code"] else "N/A"
+                host = (r["host"] or "N/A")[:29]
+                path = (r["path"] or "N/A")[:39]
 
                 print(f"{req_id:<8} {method:<8} {status:<8} {host:<30} {path:<40}")
 
-            print(f"\nShowing {args.offset + 1}-{args.offset + len(results)} of {total}")
+            print(
+                f"\nShowing {args.offset + 1}-{args.offset + len(results)} of {total}"
+            )
 
     # ====== STATS Commands ======
     def cmd_stats(self, args) -> None:
@@ -1005,8 +1044,9 @@ class Manager:
 
         stats = asyncio.run(do_stats())
 
-        if args.format == 'json':
+        if args.format == "json":
             import json
+
             print(json.dumps(stats, indent=2))
         else:
             # Table format
@@ -1015,44 +1055,45 @@ class Manager:
             print(f"Total Requests: {stats['total_requests']}\n")
 
             # By method
-            if stats['by_method']:
+            if stats["by_method"]:
                 print("Requests by Method:")
-                for method, count in stats['by_method'].items():
+                for method, count in stats["by_method"].items():
                     print(f"  {method or 'N/A':<10} {count:>6}")
                 print()
 
             # By status code
-            if stats['by_status']:
+            if stats["by_status"]:
                 print("Top Status Codes:")
-                for status, count in list(stats['by_status'].items())[:10]:
+                for status, count in list(stats["by_status"].items())[:10]:
                     print(f"  {status or 'N/A':<10} {count:>6}")
                 print()
 
             # By content category
-            if stats['by_content_category']:
+            if stats["by_content_category"]:
                 print("Content Categories:")
-                for cat, count in stats['by_content_category'].items():
+                for cat, count in stats["by_content_category"].items():
                     print(f"  {cat or 'N/A':<15} {count:>6}")
                 print()
 
             # Top hosts
-            if stats['top_hosts']:
+            if stats["top_hosts"]:
                 print("Top Hosts:")
-                for host, count in stats['top_hosts'].items():
-                    host_display = (host or 'N/A')[:50]
+                for host, count in stats["top_hosts"].items():
+                    host_display = (host or "N/A")[:50]
                     print(f"  {host_display:<50} {count:>6}")
                 print()
 
             # Time range
-            if stats['time_range']['start']:
+            if stats["time_range"]["start"]:
                 from datetime import datetime
+
                 # Convert milliseconds to seconds
-                start = datetime.fromtimestamp(stats['time_range']['start'] / 1000)
-                end = datetime.fromtimestamp(stats['time_range']['end'] / 1000)
+                start = datetime.fromtimestamp(stats["time_range"]["start"] / 1000)
+                end = datetime.fromtimestamp(stats["time_range"]["end"] / 1000)
                 print(f"Time Range: {start} to {end}\n")
 
             # Duration stats
-            if stats['duration']['avg_ms'] is not None:
+            if stats["duration"]["avg_ms"] is not None:
                 print("Duration Statistics:")
                 print(f"  Average: {stats['duration']['avg_ms']:.2f} ms")
                 print(f"  Min: {stats['duration']['min_ms']} ms")
@@ -1062,7 +1103,9 @@ class Manager:
             # Body sizes
             print("Body Sizes:")
             print(f"  Total Request: {stats['body_sizes']['total_req_bytes']:,} bytes")
-            print(f"  Total Response: {stats['body_sizes']['total_resp_bytes']:,} bytes")
+            print(
+                f"  Total Response: {stats['body_sizes']['total_resp_bytes']:,} bytes"
+            )
             print(f"  Avg Request: {stats['body_sizes']['avg_req_bytes']:.2f} bytes")
             print(f"  Avg Response: {stats['body_sizes']['avg_resp_bytes']:.2f} bytes")
 
@@ -1083,12 +1126,14 @@ class Manager:
 
                 if args.prefix:
                     # Autocomplete mode
-                    keys = await engine.autocomplete_key(args.prefix, args.type, args.limit)
+                    keys = await engine.autocomplete_key(
+                        args.prefix, args.type, args.limit
+                    )
                 else:
                     # List all mode
                     keys = await engine.get_available_keys(args.type)
                     if args.limit:
-                        keys = keys[:args.limit]
+                        keys = keys[: args.limit]
                 return keys
 
         keys = asyncio.run(do_keys())
@@ -1119,11 +1164,11 @@ class Manager:
 
         # Map CLI level to enum
         level_map = {
-            'full': DetailLevel.FULL,
-            'headers': DetailLevel.HEADERS_ONLY,
-            'request': DetailLevel.REQUEST_ONLY,
-            'response': DetailLevel.RESPONSE_ONLY,
-            'metadata': DetailLevel.METADATA
+            "full": DetailLevel.FULL,
+            "headers": DetailLevel.HEADERS_ONLY,
+            "request": DetailLevel.REQUEST_ONLY,
+            "response": DetailLevel.RESPONSE_ONLY,
+            "metadata": DetailLevel.METADATA,
         }
         detail_level = level_map.get(args.level, DetailLevel.FULL)
 
@@ -1132,8 +1177,7 @@ class Manager:
             async with Database(self.db_path) as db:
                 fetcher = DetailFetcher(db)
                 details = await fetcher.get_request_details(
-                    args.request_id,
-                    detail_level
+                    args.request_id, detail_level
                 )
                 return details
 
@@ -1143,13 +1187,15 @@ class Manager:
             print(f"Request not found: {args.request_id}")
             sys.exit(1)
 
-        if args.format == 'json':
+        if args.format == "json":
             import json
+
             # Convert bytes to base64 for JSON serialization
             def make_json_safe(obj):
                 if isinstance(obj, bytes):
                     import base64
-                    return base64.b64encode(obj).decode('ascii')
+
+                    return base64.b64encode(obj).decode("ascii")
                 elif isinstance(obj, dict):
                     return {k: make_json_safe(v) for k, v in obj.items()}
                 elif isinstance(obj, list):
@@ -1172,21 +1218,21 @@ class Manager:
             print(f"Path: {details['path']}")
             print(f"Status: {details['status_code']}")
 
-            if details.get('req_timestamp'):
+            if details.get("req_timestamp"):
                 # Convert milliseconds to seconds
-                req_time = datetime.fromtimestamp(details['req_timestamp'] / 1000)
+                req_time = datetime.fromtimestamp(details["req_timestamp"] / 1000)
                 print(f"Request Time: {req_time}")
 
-            if details.get('resp_timestamp'):
+            if details.get("resp_timestamp"):
                 # Convert milliseconds to seconds
-                resp_time = datetime.fromtimestamp(details['resp_timestamp'] / 1000)
+                resp_time = datetime.fromtimestamp(details["resp_timestamp"] / 1000)
                 print(f"Response Time: {resp_time}")
 
-            if details.get('duration_ms') is not None:
+            if details.get("duration_ms") is not None:
                 print(f"Duration: {details['duration_ms']} ms")
 
             # Request section
-            if 'request' in details:
+            if "request" in details:
                 print("\n" + "-" * 80)
                 print("REQUEST")
                 print("-" * 80)
@@ -1195,83 +1241,101 @@ class Manager:
                 print(f"Body Size: {details['request']['body_size']} bytes")
 
                 print("\nHeaders:")
-                print(DetailFetcher.format_headers(details['request']['headers']))
+                print(DetailFetcher.format_headers(details["request"]["headers"]))
 
-                if details['request']['cookies']:
+                if details["request"]["cookies"]:
                     print("\nCookies:")
-                    print(DetailFetcher.format_cookies(details['request']['cookies']))
+                    print(DetailFetcher.format_cookies(details["request"]["cookies"]))
 
-                if 'body' in details['request']:
+                if "body" in details["request"]:
                     print("\nBody:")
-                    body = details['request']['body']
+                    body = details["request"]["body"]
                     if isinstance(body, bytes):
                         # Try to decode
                         try:
-                            body_str = body.decode('utf-8', errors='replace')
+                            body_str = body.decode("utf-8", errors="replace")
 
                             # Try to pretty-print JSON if requested
-                            if args.pretty_json and details.get('req_content_type', '').lower().startswith('application/json'):
+                            if args.pretty_json and details.get(
+                                "req_content_type", ""
+                            ).lower().startswith("application/json"):
                                 try:
                                     import json
+
                                     json_obj = json.loads(body_str)
-                                    body_str = json.dumps(json_obj, indent=2, ensure_ascii=False)
+                                    body_str = json.dumps(
+                                        json_obj, indent=2, ensure_ascii=False
+                                    )
                                 except Exception:
                                     pass  # Not valid JSON, use raw string
 
                             if not args.full_body and len(body_str) > 1000:
-                                body_str = body_str[:1000] + f"\n... ({len(body) - 1000} more bytes)"
+                                body_str = (
+                                    body_str[:1000]
+                                    + f"\n... ({len(body) - 1000} more bytes)"
+                                )
                             print(body_str)
                         except Exception:
                             print(f"(binary data, {len(body)} bytes)")
                     else:
                         print(body)
-                elif details['request'].get('body_preview'):
+                elif details["request"].get("body_preview"):
                     print("\nBody Preview:")
-                    print(details['request']['body_preview'])
+                    print(details["request"]["body_preview"])
 
             # Response section
-            if 'response' in details:
+            if "response" in details:
                 print("\n" + "-" * 80)
                 print("RESPONSE")
                 print("-" * 80)
 
                 print(f"\nContent-Type: {details.get('resp_content_type', 'N/A')}")
-                print(f"Content Category: {details.get('resp_content_category', 'N/A')}")
+                print(
+                    f"Content Category: {details.get('resp_content_category', 'N/A')}"
+                )
                 print(f"Body Size: {details['response']['body_size']} bytes")
 
                 print("\nHeaders:")
-                print(DetailFetcher.format_headers(details['response']['headers']))
+                print(DetailFetcher.format_headers(details["response"]["headers"]))
 
-                if details['response']['cookies']:
+                if details["response"]["cookies"]:
                     print("\nSet-Cookie:")
-                    print(DetailFetcher.format_cookies(details['response']['cookies']))
+                    print(DetailFetcher.format_cookies(details["response"]["cookies"]))
 
-                if 'body' in details['response']:
+                if "body" in details["response"]:
                     print("\nBody:")
-                    body = details['response']['body']
+                    body = details["response"]["body"]
                     if isinstance(body, bytes):
                         # Try to decode
                         try:
-                            body_str = body.decode('utf-8', errors='replace')
+                            body_str = body.decode("utf-8", errors="replace")
 
                             # Try to pretty-print JSON if requested
-                            if args.pretty_json and details.get('resp_content_type', '').lower().startswith('application/json'):
+                            if args.pretty_json and details.get(
+                                "resp_content_type", ""
+                            ).lower().startswith("application/json"):
                                 try:
                                     import json
+
                                     json_obj = json.loads(body_str)
-                                    body_str = json.dumps(json_obj, indent=2, ensure_ascii=False)
+                                    body_str = json.dumps(
+                                        json_obj, indent=2, ensure_ascii=False
+                                    )
                                 except Exception:
                                     pass  # Not valid JSON, use raw string
 
                             if not args.full_body and len(body_str) > 1000:
-                                body_str = body_str[:1000] + f"\n... ({len(body) - 1000} more bytes)"
+                                body_str = (
+                                    body_str[:1000]
+                                    + f"\n... ({len(body) - 1000} more bytes)"
+                                )
                             print(body_str)
                         except Exception:
                             print(f"(binary data, {len(body)} bytes)")
                     else:
                         print(body)
-                elif details['response'].get('body_preview'):
+                elif details["response"].get("body_preview"):
                     print("\nBody Preview:")
-                    print(details['response']['body_preview'])
+                    print(details["response"]["body_preview"])
 
             print("\n" + "=" * 80)

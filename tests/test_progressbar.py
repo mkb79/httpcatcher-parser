@@ -2,8 +2,6 @@
 """Test progress bar functionality."""
 
 import asyncio
-import tempfile
-from pathlib import Path
 from tqdm.asyncio import tqdm as async_tqdm
 
 

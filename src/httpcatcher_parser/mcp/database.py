@@ -6,11 +6,10 @@ import aiosqlite
 from pathlib import Path
 from typing import Optional
 
+from .database_backup import FTS_SQL, PRAGMA_SQL, SCHEMA_SQL
+
 # Schema version for migrations
 SCHEMA_VERSION = "1.0"
-
-# Import schema constants from backup
-from .database_backup import SCHEMA_SQL, FTS_SQL, PRAGMA_SQL
 
 
 class Database:
@@ -35,7 +34,7 @@ class Database:
         """Create and configure database connection."""
         conn = await aiosqlite.connect(
             str(self.db_path),
-            timeout=30.0  # Wait up to 30 seconds for locks
+            timeout=30.0,  # Wait up to 30 seconds for locks
         )
         conn.row_factory = aiosqlite.Row  # Access columns by name
 
@@ -70,13 +69,18 @@ class Database:
         if await cursor.fetchone() is None:
             await conn.execute(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                ("schema_version", SCHEMA_VERSION)
+                ("schema_version", SCHEMA_VERSION),
             )
             import time
-            created_at = int(time.time()) if self.db_path == ":memory:" else int(Path(self.db_path).stat().st_ctime)
+
+            created_at = (
+                int(time.time())
+                if self.db_path == ":memory:"
+                else int(Path(self.db_path).stat().st_ctime)
+            )
             await conn.execute(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                ("created_at", str(created_at))
+                ("created_at", str(created_at)),
             )
 
         await conn.commit()
@@ -92,7 +96,7 @@ class Database:
         cursor = await conn.execute("PRAGMA table_info(requests)")
         columns = {row[1] async for row in cursor}
 
-        if 'req_body_blob' not in columns:
+        if "req_body_blob" not in columns:
             await conn.execute("ALTER TABLE requests ADD COLUMN req_body_blob BLOB")
             await conn.execute("ALTER TABLE requests ADD COLUMN resp_body_blob BLOB")
             await conn.commit()

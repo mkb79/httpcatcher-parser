@@ -90,7 +90,9 @@ class SearchFilters:
     offset: int = 0
 
     # Sorting
-    sort_by: str = "req_timestamp"  # req_timestamp, resp_timestamp, duration_ms, status_code
+    sort_by: str = (
+        "req_timestamp"  # req_timestamp, resp_timestamp, duration_ms, status_code
+    )
     sort_desc: bool = True
 
 
@@ -121,23 +123,25 @@ class QueryEngine:
         results = []
 
         async for row in cursor:
-            results.append({
-                'id': row[0],
-                'file_id': row[1],
-                'method': row[2],
-                'url': row[3],
-                'host': row[4],
-                'path': row[5],
-                'status_code': row[6],
-                'req_timestamp': row[7],
-                'resp_timestamp': row[8],
-                'duration_ms': row[9],
-                'req_content_type': row[10],
-                'resp_content_type': row[11],
-                'resp_content_category': row[12],
-                'req_body_size': row[13],
-                'resp_body_size': row[14],
-            })
+            results.append(
+                {
+                    "id": row[0],
+                    "file_id": row[1],
+                    "method": row[2],
+                    "url": row[3],
+                    "host": row[4],
+                    "path": row[5],
+                    "status_code": row[6],
+                    "req_timestamp": row[7],
+                    "resp_timestamp": row[8],
+                    "duration_ms": row[9],
+                    "req_content_type": row[10],
+                    "resp_content_type": row[11],
+                    "resp_content_category": row[12],
+                    "req_body_size": row[13],
+                    "resp_body_size": row[14],
+                }
+            )
 
         return results
 
@@ -157,7 +161,9 @@ class QueryEngine:
         row = await cursor.fetchone()
         return row[0]
 
-    def _build_query(self, filters: SearchFilters, count_only: bool = False) -> tuple[str, list]:
+    def _build_query(
+        self, filters: SearchFilters, count_only: bool = False
+    ) -> tuple[str, list]:
         """Build SQL query from filters.
 
         Args:
@@ -190,7 +196,7 @@ class QueryEngine:
 
         # Status code filters
         if filters.status_codes:
-            placeholders = ','.join(['?'] * len(filters.status_codes))
+            placeholders = ",".join(["?"] * len(filters.status_codes))
             where_clauses.append(f"r.status_code IN ({placeholders})")
             params.extend(filters.status_codes)
 
@@ -226,7 +232,7 @@ class QueryEngine:
 
         # File filters
         if filters.file_ids:
-            placeholders = ','.join(['?'] * len(filters.file_ids))
+            placeholders = ",".join(["?"] * len(filters.file_ids))
             where_clauses.append(f"r.file_id IN ({placeholders})")
             params.extend(filters.file_ids)
 
@@ -311,7 +317,7 @@ class QueryEngine:
         index: int,
         where_clauses: list[str],
         params: list,
-        joins: list[str]
+        joins: list[str],
     ):
         """Add header filter to query."""
         table = "request_headers" if hf.request else "response_headers"
@@ -324,7 +330,9 @@ class QueryEngine:
         if hf.key:
             # Join with header_keys for key lookup
             key_alias = f"hk{index}"
-            joins.append(f"INNER JOIN header_keys {key_alias} ON {key_alias}.id = {alias}.key_id")
+            joins.append(
+                f"INNER JOIN header_keys {key_alias} ON {key_alias}.id = {alias}.key_id"
+            )
             where_clauses.append(f"{key_alias}.name_lower LIKE ?")
             params.append(f"%{hf.key.lower()}%")
 
@@ -339,7 +347,7 @@ class QueryEngine:
         index: int,
         where_clauses: list[str],
         params: list,
-        joins: list[str]
+        joins: list[str],
     ):
         """Add cookie filter to query."""
         table = "request_cookies" if cf.request else "response_cookies"
@@ -352,7 +360,9 @@ class QueryEngine:
         if cf.key:
             # Join with cookie_keys for key lookup
             key_alias = f"ck{index}"
-            joins.append(f"INNER JOIN cookie_keys {key_alias} ON {key_alias}.id = {alias}.key_id")
+            joins.append(
+                f"INNER JOIN cookie_keys {key_alias} ON {key_alias}.id = {alias}.key_id"
+            )
             where_clauses.append(f"{key_alias}.name_lower LIKE ?")
             params.append(f"%{cf.key.lower()}%")
 
@@ -366,7 +376,7 @@ class QueryEngine:
         filters: SearchFilters,
         where_clauses: list[str],
         params: list,
-        joins: list[str]
+        joins: list[str],
     ):
         """Add FTS5 body search to query."""
         # Note: FTS5 virtual table is optional, check if it exists first
@@ -400,12 +410,9 @@ class QueryEngine:
         stats = {}
 
         # Total requests
-        cursor = await conn.execute(
-            f"SELECT COUNT(*) FROM requests r {where}",
-            params
-        )
+        cursor = await conn.execute(f"SELECT COUNT(*) FROM requests r {where}", params)
         row = await cursor.fetchone()
-        stats['total_requests'] = row[0]
+        stats["total_requests"] = row[0]
 
         # Requests by method
         cursor = await conn.execute(
@@ -415,9 +422,9 @@ class QueryEngine:
             GROUP BY method
             ORDER BY count DESC
             """,
-            params
+            params,
         )
-        stats['by_method'] = {row[0]: row[1] async for row in cursor}
+        stats["by_method"] = {row[0]: row[1] async for row in cursor}
 
         # Requests by status code
         cursor = await conn.execute(
@@ -428,9 +435,9 @@ class QueryEngine:
             ORDER BY count DESC
             LIMIT 20
             """,
-            params
+            params,
         )
-        stats['by_status'] = {row[0]: row[1] async for row in cursor}
+        stats["by_status"] = {row[0]: row[1] async for row in cursor}
 
         # Requests by content category
         cursor = await conn.execute(
@@ -440,9 +447,9 @@ class QueryEngine:
             GROUP BY resp_content_category
             ORDER BY count DESC
             """,
-            params
+            params,
         )
-        stats['by_content_category'] = {row[0]: row[1] async for row in cursor}
+        stats["by_content_category"] = {row[0]: row[1] async for row in cursor}
 
         # Top hosts
         cursor = await conn.execute(
@@ -453,9 +460,9 @@ class QueryEngine:
             ORDER BY count DESC
             LIMIT 10
             """,
-            params
+            params,
         )
-        stats['top_hosts'] = {row[0]: row[1] async for row in cursor}
+        stats["top_hosts"] = {row[0]: row[1] async for row in cursor}
 
         # Time range
         cursor = await conn.execute(
@@ -463,13 +470,10 @@ class QueryEngine:
             SELECT MIN(req_timestamp), MAX(req_timestamp)
             FROM requests r {where}
             """,
-            params
+            params,
         )
         row = await cursor.fetchone()
-        stats['time_range'] = {
-            'start': row[0],
-            'end': row[1]
-        }
+        stats["time_range"] = {"start": row[0], "end": row[1]}
 
         # Average duration
         cursor = await conn.execute(
@@ -478,14 +482,10 @@ class QueryEngine:
             FROM requests r
             {where}
             """,
-            params
+            params,
         )
         row = await cursor.fetchone()
-        stats['duration'] = {
-            'avg_ms': row[0],
-            'min_ms': row[1],
-            'max_ms': row[2]
-        }
+        stats["duration"] = {"avg_ms": row[0], "min_ms": row[1], "max_ms": row[2]}
 
         # Body sizes
         cursor = await conn.execute(
@@ -495,14 +495,14 @@ class QueryEngine:
                 AVG(req_body_size), AVG(resp_body_size)
             FROM requests r {where}
             """,
-            params
+            params,
         )
         row = await cursor.fetchone()
-        stats['body_sizes'] = {
-            'total_req_bytes': row[0] or 0,
-            'total_resp_bytes': row[1] or 0,
-            'avg_req_bytes': row[2] or 0,
-            'avg_resp_bytes': row[3] or 0,
+        stats["body_sizes"] = {
+            "total_req_bytes": row[0] or 0,
+            "total_resp_bytes": row[1] or 0,
+            "avg_req_bytes": row[2] or 0,
+            "avg_resp_bytes": row[3] or 0,
         }
 
         return stats
@@ -527,12 +527,11 @@ class QueryEngine:
             """
         )
 
-        return [
-            {'name': row[0], 'usage_count': row[1]}
-            async for row in cursor
-        ]
+        return [{"name": row[0], "usage_count": row[1]} async for row in cursor]
 
-    async def autocomplete_key(self, prefix: str, key_type: str = "header", limit: int = 20) -> list[str]:
+    async def autocomplete_key(
+        self, prefix: str, key_type: str = "header", limit: int = 20
+    ) -> list[str]:
         """Autocomplete header or cookie key names.
 
         Args:
@@ -554,7 +553,7 @@ class QueryEngine:
             ORDER BY usage_count DESC
             LIMIT ?
             """,
-            (f"{prefix.lower()}%", limit)
+            (f"{prefix.lower()}%", limit),
         )
 
         return [row[0] async for row in cursor]

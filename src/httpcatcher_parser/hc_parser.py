@@ -1,27 +1,19 @@
-from __future__ import annotations
-
 """HTTP Catcher session parser.
 
 This module parses HTTP Catcher binary session files and provides utilities to
 inspect requests, responses and connection frames. The code is formatted per
 PEP 8 and aims to be Ruff-friendly. Comments and docstrings are in English.
 """
+
+from __future__ import annotations
+
+import argparse
 import json
 import mmap
 import os
 import struct
-import argparse
 from dataclasses import dataclass, field
-from typing import (
-    Iterator,
-    List,
-    Literal,
-    Optional,
-    Protocol,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import Iterator, List, Literal, Optional, Protocol, Set, Tuple, Union
 
 # ==========
 # Binary helpers & constants
@@ -45,9 +37,7 @@ TLS_MARKER_STATUS = 0x0000080A
 DAY_MS = 24 * 60 * 60 * 1000
 
 ReqRespKind = Literal["request", "response"]
-Subtype = Literal[
-    "header", "body_mid", "body_final", "trailer", "unknown"
-]
+Subtype = Literal["header", "body_mid", "body_final", "trailer", "unknown"]
 
 
 def u16(mv: memoryview, off: int) -> int:
@@ -370,9 +360,7 @@ class Reader:
 
     def require(self, n: int) -> None:
         if self.pos + n > self.size:
-            raise Bounds(
-                f"need {n} bytes, have {self.remaining()} at 0x{self.pos:X}"
-            )
+            raise Bounds(f"need {n} bytes, have {self.remaining()} at 0x{self.pos:X}")
 
     def peek_u32(self, rel: int = 0) -> Optional[int]:
         if self.pos + rel + 4 > self.size:
@@ -497,8 +485,7 @@ class BaseParser(Protocol):
     name: str
     priority: int  # smaller runs earlier
 
-    def parse(self, r: Reader, ctx: ParseCtx) -> Optional[ParsedItem]:
-        ...
+    def parse(self, r: Reader, ctx: ParseCtx) -> Optional[ParsedItem]: ...
 
 
 # ==========
@@ -653,7 +640,9 @@ class ReqRespSegmentParser:
                 )
 
         if len_prolog == 0 and status == 9:
-            if (request_id in ctx.resp_body_open) or (request_id in ctx.seen_resp_header):
+            if (request_id in ctx.resp_body_open) or (
+                request_id in ctx.seen_resp_header
+            ):
                 r.align_to(p)
                 return ResponseBody(
                     start=start,
@@ -691,9 +680,7 @@ class ReqRespSegmentParser:
         if pad != 0x00 or req_id_rep != request_id or len_repeat != len_prolog:
             return None
 
-        kind: ReqRespKind = (
-            "request" if end_marker == MARK_REQ_SEGMENT else "response"
-        )
+        kind: ReqRespKind = "request" if end_marker == MARK_REQ_SEGMENT else "response"
 
         payload = mv[payload_start:payload_end_nominal].tobytes()
         ts_post_valid = ts_post if _ts_in_window(ctx, ts_post) else None
@@ -859,9 +846,7 @@ class ReqRespWithLeadingTsParser:
             return None
 
         payload = mv[payload_start:payload_end_nominal].tobytes()
-        kind: ReqRespKind = (
-            "request" if end_marker == MARK_REQ_SEGMENT else "response"
-        )
+        kind: ReqRespKind = "request" if end_marker == MARK_REQ_SEGMENT else "response"
         ts_post_valid = ts_post if _ts_in_window(ctx, ts_post) else None
 
         if kind == "request":
@@ -1070,9 +1055,7 @@ class TailOnlyParser:
             r.align_to(p)
             return ConnectTunnelBytes(start=start, end=p, request_id=request_id)
 
-        kind: ReqRespKind = (
-            "request" if end_marker == MARK_REQ_SEGMENT else "response"
-        )
+        kind: ReqRespKind = "request" if end_marker == MARK_REQ_SEGMENT else "response"
         r.align_to(p)
         ts_post_valid = ts_post if _ts_in_window(ctx, ts_post) else None
         return Segment(
@@ -1121,9 +1104,7 @@ class FallbackUnknownParser:
     def parse(self, r: Reader, ctx: ParseCtx) -> Optional[ParsedItem]:
         unk_start = r.pos
         r.skip(1)
-        sample = bytes(
-            r.mv[unk_start : min(unk_start + self.sample_len, len(r.mv))]
-        )
+        sample = bytes(r.mv[unk_start : min(unk_start + self.sample_len, len(r.mv))])
         return UnknownChunk(start=unk_start, end=r.pos, sample=sample)
 
 
@@ -1180,9 +1161,7 @@ class HttpCatcherScanner:
 
                 first = self._next_item(r, ctx)
                 if not isinstance(first, FileHeader):
-                    raise MagicMismatch(
-                        "file does not start with a valid FileHeader"
-                    )
+                    raise MagicMismatch("file does not start with a valid FileHeader")
                 yield first
 
                 while r.pos < file_size:
@@ -1302,13 +1281,13 @@ def _should_write_status(item: ParsedItem) -> Tuple[bool, Optional[str]]:
     return False, None
 
 
-def _format_status_line(
-    item: Union[_SEGMENT_TYPES, UnknownChunk], reason: str
-) -> str:
+def _format_status_line(item: Union[_SEGMENT_TYPES, UnknownChunk], reason: str) -> str:
     if isinstance(item, _SEGMENT_TYPES):
         pl = 0 if (item.payload is None) else len(item.payload)
         kind = getattr(item, "kind", None) or (
-            "response" if isinstance(item, (ResponseHeader, ResponseBody)) else "request"
+            "response"
+            if isinstance(item, (ResponseHeader, ResponseBody))
+            else "request"
         )
         subtype = getattr(item, "subtype", "unknown")
         return (
@@ -1321,7 +1300,7 @@ def _format_status_line(
     long_flag = " long" if span >= 256 else ""
     return (
         f"[{reason}{long_flag}] unknown pos=0x{item.start:X}-0x{item.end:X} "
-        f"span={span} head_hex=\"{hexs}\" head_ascii=\"{asci}\""
+        f'span={span} head_hex="{hexs}" head_ascii="{asci}"'
     )
 
 
@@ -1503,9 +1482,7 @@ class MetricsHarvester:
 # ==========
 
 
-def _flush_unknown(
-    pending_unk: Optional[dict], file, sfile
-) -> Optional[dict]:
+def _flush_unknown(pending_unk: Optional[dict], file, sfile) -> Optional[dict]:
     if not pending_unk:
         return None
     start = pending_unk["start"]
@@ -1521,7 +1498,7 @@ def _flush_unknown(
     print(
         (
             f"[unknown-chunk{long_flag}] pos=0x{start:X}-0x{end:X} "
-            f"span={length} head_hex=\"{hexs}\" head_ascii=\"{asci}\""
+            f'span={length} head_hex="{hexs}" head_ascii="{asci}"'
         ),
         file=sfile,
     )
@@ -1544,9 +1521,7 @@ def main() -> None:
         SESSION_FILE (Pfad zur Session)
         --outdir DIR (Zielordner; default: result_{basename_without_suffix})
     """
-    import argparse
     import os
-    import json
 
     ap = argparse.ArgumentParser(
         description="Parse HTTP Catcher session file and export reports."
@@ -1597,9 +1572,10 @@ def main() -> None:
     unknown_total_all = 0
     unknown_ranges_report: List[Tuple[int, int]] = []
 
-    with open(outfile, "a", encoding="utf-8") as file, open(
-        statusfile, "a", encoding="utf-8"
-    ) as sfile:
+    with (
+        open(outfile, "a", encoding="utf-8") as file,
+        open(statusfile, "a", encoding="utf-8") as sfile,
+    ):
         pending_unk: Optional[dict] = None
 
         def _flush_and_collect():
@@ -1607,7 +1583,8 @@ def main() -> None:
             nonlocal pending_unk, unknown_total_all, unknown_ranges_report
             if pending_unk is None:
                 return
-            start = pending_unk["start"]; end = pending_unk["end"]
+            start = pending_unk["start"]
+            end = pending_unk["end"]
             length = end - start
             unknown_total_all += length
             if length >= max(1, int(args.min_gap_bytes)):
@@ -1656,8 +1633,8 @@ def main() -> None:
         print(f"Coverage: {covered}/{size} bytes ({coverage:.2f}%)")
 
         with open(gaps_outfile, "w", encoding="utf-8") as gf:
-            for (s, e) in unknown_ranges_report:
-                print(f"0x{s:08X}-0x{e:08X} ({e-s} bytes)", file=gf)
+            for s, e in unknown_ranges_report:
+                print(f"0x{s:08X}-0x{e:08X} ({e - s} bytes)", file=gf)
         print(f"Wrote gaps: {gaps_outfile}")
 
     metrics = mh.finalize()

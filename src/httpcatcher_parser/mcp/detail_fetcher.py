@@ -34,9 +34,7 @@ class DetailFetcher:
         self.db = db
 
     async def get_request_details(
-        self,
-        request_id: int,
-        detail_level: DetailLevel = DetailLevel.FULL
+        self, request_id: int, detail_level: DetailLevel = DetailLevel.FULL
     ) -> Optional[dict]:
         """Get request details with optional body loading.
 
@@ -67,7 +65,7 @@ class DetailFetcher:
             JOIN session_files sf ON sf.id = r.file_id
             WHERE r.id = ?
             """,
-            (request_id,)
+            (request_id,),
         )
         row = await cursor.fetchone()
 
@@ -78,45 +76,45 @@ class DetailFetcher:
         details = {}
 
         # Metadata (always included)
-        details['id'] = row[0]
-        details['file_id'] = row[1]
-        details['method'] = row[2]
-        details['url'] = row[3]
-        details['host'] = row[4]
-        details['path'] = row[5]
-        details['status_code'] = row[6]
-        details['req_timestamp'] = row[7]
-        details['resp_timestamp'] = row[8]
-        details['duration_ms'] = row[9]
+        details["id"] = row[0]
+        details["file_id"] = row[1]
+        details["method"] = row[2]
+        details["url"] = row[3]
+        details["host"] = row[4]
+        details["path"] = row[5]
+        details["status_code"] = row[6]
+        details["req_timestamp"] = row[7]
+        details["resp_timestamp"] = row[8]
+        details["duration_ms"] = row[9]
 
         if detail_level == DetailLevel.METADATA:
             return details
 
         # Connection info
-        details['connection_id'] = row[10]
-        details['port'] = row[11]
+        details["connection_id"] = row[10]
+        details["port"] = row[11]
 
         # Content types
-        details['req_content_type'] = row[12]
-        details['resp_content_type'] = row[13]
-        details['resp_content_category'] = row[14]
+        details["req_content_type"] = row[12]
+        details["resp_content_type"] = row[13]
+        details["resp_content_category"] = row[14]
 
         # Headers and cookies (if not response-only)
         if detail_level != DetailLevel.RESPONSE_ONLY:
-            details['request'] = {
-                'headers': json.loads(row[15]) if row[15] else [],
-                'cookies': json.loads(row[17]) if row[17] else [],
-                'body_size': row[19],
-                'body_preview': row[27]
+            details["request"] = {
+                "headers": json.loads(row[15]) if row[15] else [],
+                "cookies": json.loads(row[17]) if row[17] else [],
+                "body_size": row[19],
+                "body_preview": row[27],
             }
 
         # Response headers and cookies (if not request-only)
         if detail_level != DetailLevel.REQUEST_ONLY:
-            details['response'] = {
-                'headers': json.loads(row[16]) if row[16] else [],
-                'cookies': json.loads(row[18]) if row[18] else [],
-                'body_size': row[20],
-                'body_preview': row[28]
+            details["response"] = {
+                "headers": json.loads(row[16]) if row[16] else [],
+                "cookies": json.loads(row[18]) if row[18] else [],
+                "body_size": row[20],
+                "body_preview": row[28],
             }
 
         # Load full bodies from BLOBs (preferred) or from file (fallback)
@@ -129,12 +127,14 @@ class DetailFetcher:
             if row[25] is not None:  # req_body_blob
                 body_data = row[25]
             # Fallback to file-based loading if offsets are available
-            elif row[21] is not None and row[23] is not None:  # req_body_offset, req_body_length
+            elif (
+                row[21] is not None and row[23] is not None
+            ):  # req_body_offset, req_body_length
                 body_data = await self._load_body_from_file(file_path, row[21], row[23])
 
             # Bodies are already decompressed during indexing
             if body_data is not None:
-                details['request']['body'] = body_data
+                details["request"]["body"] = body_data
 
         if detail_level in (DetailLevel.FULL, DetailLevel.RESPONSE_ONLY):
             body_data = None
@@ -143,20 +143,19 @@ class DetailFetcher:
             if row[26] is not None:  # resp_body_blob
                 body_data = row[26]
             # Fallback to file-based loading if offsets are available
-            elif row[22] is not None and row[24] is not None:  # resp_body_offset, resp_body_length
+            elif (
+                row[22] is not None and row[24] is not None
+            ):  # resp_body_offset, resp_body_length
                 body_data = await self._load_body_from_file(file_path, row[22], row[24])
 
             # Bodies are already decompressed during indexing
             if body_data is not None:
-                details['response']['body'] = body_data
+                details["response"]["body"] = body_data
 
         return details
 
     async def _load_body_from_file(
-        self,
-        file_path: Path,
-        offset: int,
-        length: int
+        self, file_path: Path, offset: int, length: int
     ) -> Optional[bytes]:
         """Load body data from file using async file operations.
 
@@ -172,17 +171,14 @@ class DetailFetcher:
             return None
 
         try:
-            async with aiofiles.open(file_path, 'rb') as f:
+            async with aiofiles.open(file_path, "rb") as f:
                 await f.seek(offset)
                 return await f.read(length)
         except Exception:
             return None
 
     async def get_request_body(
-        self,
-        request_id: int,
-        request: bool = True,
-        encoding: str = 'utf-8'
+        self, request_id: int, request: bool = True, encoding: str = "utf-8"
     ) -> Optional[str | bytes]:
         """Get just the body of a request or response.
 
@@ -209,7 +205,7 @@ class DetailFetcher:
             JOIN session_files sf ON sf.id = r.file_id
             WHERE r.id = ?
             """,
-            (request_id,)
+            (request_id,),
         )
         row = await cursor.fetchone()
 
@@ -239,7 +235,7 @@ class DetailFetcher:
         # Decode if encoding specified
         if encoding:
             try:
-                return body_data.decode(encoding, errors='replace')
+                return body_data.decode(encoding, errors="replace")
             except Exception:
                 return body_data
 
@@ -260,8 +256,8 @@ class DetailFetcher:
 
         lines = []
         for h in headers:
-            name = h.get('name', 'Unknown')
-            value = h.get('value', '')
+            name = h.get("name", "Unknown")
+            value = h.get("value", "")
             lines.append(f"  {name}: {value}")
 
         return "\n".join(lines)
@@ -281,23 +277,23 @@ class DetailFetcher:
 
         lines = []
         for c in cookies:
-            name = c.get('name', 'Unknown')
-            value = c.get('value', '')
+            name = c.get("name", "Unknown")
+            value = c.get("value", "")
             # Truncate long values
             if len(value) > 50:
                 value = value[:47] + "..."
             lines.append(f"  {name} = {value}")
 
             # Show attributes for response cookies
-            if 'domain' in c and c['domain']:
+            if "domain" in c and c["domain"]:
                 lines.append(f"    Domain: {c['domain']}")
-            if 'path' in c and c['path']:
+            if "path" in c and c["path"]:
                 lines.append(f"    Path: {c['path']}")
-            if c.get('http_only'):
+            if c.get("http_only"):
                 lines.append("    HttpOnly")
-            if c.get('secure'):
+            if c.get("secure"):
                 lines.append("    Secure")
-            if c.get('same_site'):
+            if c.get("same_site"):
                 lines.append(f"    SameSite: {c['same_site']}")
 
         return "\n".join(lines)

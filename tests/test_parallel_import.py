@@ -5,9 +5,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from src.httpcatcher_parser.mcp.database import Database
-from src.httpcatcher_parser.mcp.indexer import Indexer
 from src.httpcatcher_parser.mcp.file_tracker import FileTracker, compute_file_hash
-from src.httpcatcher_parser.hc_parser import HttpCatcherScanner
 
 
 async def test_parallel_processing():
@@ -87,16 +85,18 @@ async def test_concurrent_file_operations():
 
 
 if __name__ == "__main__":
+
     async def main():
         try:
             await test_parallel_processing()
             await test_concurrent_file_operations()
-            print("\n" + "="*50)
+            print("\n" + "=" * 50)
             print("SUCCESS: All async tests passed!")
-            print("="*50)
+            print("=" * 50)
         except Exception as e:
             print(f"\n✗ Test failed: {e}")
             import traceback
+
             traceback.print_exc()
             return 1
         return 0

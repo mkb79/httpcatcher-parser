@@ -4,51 +4,51 @@ from __future__ import annotations
 
 # Content-Type mapping for fast categorization
 CONTENT_TYPE_CATEGORIES = {
-    'json': [
-        'application/json',
-        'application/ld+json',
-        'application/vnd.api+json',
-        'application/hal+json',
-        'application/problem+json',
+    "json": [
+        "application/json",
+        "application/ld+json",
+        "application/vnd.api+json",
+        "application/hal+json",
+        "application/problem+json",
     ],
-    'image': [
-        'image/',
+    "image": [
+        "image/",
     ],
-    'media': [
-        'video/',
-        'audio/',
+    "media": [
+        "video/",
+        "audio/",
     ],
-    'websocket': [
-        'application/websocket',
+    "websocket": [
+        "application/websocket",
     ],
-    'html': [
-        'text/html',
-        'application/xhtml+xml',
+    "html": [
+        "text/html",
+        "application/xhtml+xml",
     ],
-    'css': [
-        'text/css',
+    "css": [
+        "text/css",
     ],
-    'javascript': [
-        'application/javascript',
-        'application/x-javascript',
-        'text/javascript',
-        'application/ecmascript',
+    "javascript": [
+        "application/javascript",
+        "application/x-javascript",
+        "text/javascript",
+        "application/ecmascript",
     ],
-    'font': [
-        'font/',
-        'application/font-woff',
-        'application/font-woff2',
-        'application/vnd.ms-fontobject',
+    "font": [
+        "font/",
+        "application/font-woff",
+        "application/font-woff2",
+        "application/vnd.ms-fontobject",
     ],
-    'xml': [
-        'application/xml',
-        'text/xml',
+    "xml": [
+        "application/xml",
+        "text/xml",
     ],
-    'pdf': [
-        'application/pdf',
+    "pdf": [
+        "application/pdf",
     ],
-    'binary': [
-        'application/octet-stream',
+    "binary": [
+        "application/octet-stream",
     ],
 }
 
@@ -72,10 +72,10 @@ def categorize_content_type(content_type: str | None) -> str:
         'media'
     """
     if not content_type:
-        return 'other'
+        return "other"
 
     # Extract MIME type (before semicolon)
-    mime = content_type.split(';')[0].strip().lower()
+    mime = content_type.split(";")[0].strip().lower()
 
     # Check each category
     for category, patterns in CONTENT_TYPE_CATEGORIES.items():
@@ -83,7 +83,7 @@ def categorize_content_type(content_type: str | None) -> str:
             if mime.startswith(pattern):
                 return category
 
-    return 'other'
+    return "other"
 
 
 def parse_content_type(content_type: str | None) -> tuple[str, dict[str, str]]:
@@ -102,15 +102,15 @@ def parse_content_type(content_type: str | None) -> tuple[str, dict[str, str]]:
         ('text/html', {})
     """
     if not content_type:
-        return '', {}
+        return "", {}
 
-    parts = [p.strip() for p in content_type.split(';')]
+    parts = [p.strip() for p in content_type.split(";")]
     mime = parts[0].lower()
 
     params = {}
     for part in parts[1:]:
-        if '=' in part:
-            key, value = part.split('=', 1)
+        if "=" in part:
+            key, value = part.split("=", 1)
             params[key.strip().lower()] = value.strip().strip('"')
 
     return mime, params

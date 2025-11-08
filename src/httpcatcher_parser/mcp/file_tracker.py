@@ -25,7 +25,7 @@ async def compute_file_hash(file_path: Path) -> str:
         Reads file in chunks for memory efficiency.
     """
     sha256 = hashlib.sha256()
-    async with aiofiles.open(file_path, 'rb') as f:
+    async with aiofiles.open(file_path, "rb") as f:
         while chunk := await f.read(8192):
             sha256.update(chunk)
     return sha256.hexdigest()
@@ -67,7 +67,7 @@ class FileTracker:
         conn = await self.db.connect()
         cursor = await conn.execute(
             "SELECT id, file_hash FROM session_files WHERE file_path = ?",
-            (str(file_path),)
+            (str(file_path),),
         )
         row = await cursor.fetchone()
 
@@ -84,7 +84,7 @@ class FileTracker:
                         indexed_at = ?, status = 'active'
                     WHERE id = ?
                     """,
-                    (file_hash, file_size, last_modified, indexed_at, file_id)
+                    (file_hash, file_size, last_modified, indexed_at, file_id),
                 )
                 await conn.commit()
         else:
@@ -95,7 +95,7 @@ class FileTracker:
                 (file_path, file_hash, file_size, last_modified, indexed_at, status)
                 VALUES (?, ?, ?, ?, ?, 'active')
                 """,
-                (str(file_path), file_hash, file_size, last_modified, indexed_at)
+                (str(file_path), file_hash, file_size, last_modified, indexed_at),
             )
             file_id = cursor.lastrowid
             await conn.commit()
@@ -118,17 +118,17 @@ class FileTracker:
             FROM session_files
             WHERE file_hash = ?
             """,
-            (file_hash,)
+            (file_hash,),
         )
         row = await cursor.fetchone()
 
         if row:
             return {
-                'id': row[0],
-                'file_path': row[1],
-                'file_size': row[2],
-                'indexed_at': row[3],
-                'file_hash': file_hash
+                "id": row[0],
+                "file_path": row[1],
+                "file_size": row[2],
+                "indexed_at": row[3],
+                "file_hash": file_hash,
             }
         return None
 
@@ -145,17 +145,13 @@ class FileTracker:
 
         # Count requests before deleting
         cursor = await conn.execute(
-            "SELECT COUNT(*) FROM requests WHERE file_id = ?",
-            (file_id,)
+            "SELECT COUNT(*) FROM requests WHERE file_id = ?", (file_id,)
         )
         row = await cursor.fetchone()
         request_count = row[0]
 
         # Delete file (cascade will handle requests)
-        await conn.execute(
-            "DELETE FROM session_files WHERE id = ?",
-            (file_id,)
-        )
+        await conn.execute("DELETE FROM session_files WHERE id = ?", (file_id,))
         await conn.commit()
 
         return request_count
@@ -181,7 +177,7 @@ class FileTracker:
             WHERE sf.id = ?
             GROUP BY sf.id
             """,
-            (file_id,)
+            (file_id,),
         )
         row = await cursor.fetchone()
 
@@ -189,15 +185,15 @@ class FileTracker:
             return None
 
         return {
-            'id': row[0],
-            'file_path': row[1],
-            'filename': Path(row[1]).name,
-            'file_hash': row[2],
-            'file_size': row[3],
-            'last_modified': row[4],
-            'indexed_at': row[5],
-            'status': row[6],
-            'request_count': row[7],
+            "id": row[0],
+            "file_path": row[1],
+            "filename": Path(row[1]).name,
+            "file_hash": row[2],
+            "file_size": row[3],
+            "last_modified": row[4],
+            "indexed_at": row[5],
+            "status": row[6],
+            "request_count": row[7],
         }
 
     async def list_files(self) -> list[dict]:
@@ -223,17 +219,19 @@ class FileTracker:
 
         files = []
         async for row in cursor:
-            files.append({
-                'id': row[0],
-                'file_path': row[1],
-                'filename': Path(row[1]).name,
-                'file_hash': row[2],
-                'file_size': row[3],
-                'last_modified': row[4],
-                'indexed_at': row[5],
-                'status': row[6],
-                'request_count': row[7],
-            })
+            files.append(
+                {
+                    "id": row[0],
+                    "file_path": row[1],
+                    "filename": Path(row[1]).name,
+                    "file_hash": row[2],
+                    "file_size": row[3],
+                    "last_modified": row[4],
+                    "indexed_at": row[5],
+                    "status": row[6],
+                    "request_count": row[7],
+                }
+            )
 
         return files
 
@@ -252,8 +250,7 @@ class FileTracker:
         try:
             file_id = int(identifier)
             cursor = await conn.execute(
-                "SELECT id FROM session_files WHERE id = ?",
-                (file_id,)
+                "SELECT id FROM session_files WHERE id = ?", (file_id,)
             )
             row = await cursor.fetchone()
             return row[0] if row else None
@@ -262,8 +259,7 @@ class FileTracker:
 
         # Try as filename
         cursor = await conn.execute(
-            "SELECT id FROM session_files WHERE file_path LIKE ?",
-            (f"%{identifier}",)
+            "SELECT id FROM session_files WHERE file_path LIKE ?", (f"%{identifier}",)
         )
         row = await cursor.fetchone()
         return row[0] if row else None
@@ -282,8 +278,7 @@ class FileTracker:
 
         conn = await self.db.connect()
         cursor = await conn.execute(
-            "SELECT file_hash FROM session_files WHERE file_path = ?",
-            (str(file_path),)
+            "SELECT file_hash FROM session_files WHERE file_path = ?", (str(file_path),)
         )
         row = await cursor.fetchone()
 
@@ -299,7 +294,7 @@ class FileTracker:
         self,
         directory: Path,
         pattern: str = "????_??_??__??_??_??*",
-        recursive: bool = True
+        recursive: bool = True,
     ) -> list[Path]:
         """Scan directory for HTTP Catcher session files.
 
@@ -331,11 +326,7 @@ class FileTracker:
         Returns:
             Dict with 'orphaned', 'untracked', 'modified' file lists
         """
-        issues = {
-            'orphaned': [],
-            'untracked': [],
-            'modified': []
-        }
+        issues = {"orphaned": [], "untracked": [], "modified": []}
 
         conn = await self.db.connect()
 
@@ -349,7 +340,7 @@ class FileTracker:
             if not Path(file_path).exists():
                 file_info = await self.get_file_info(file_id)
                 if file_info:
-                    issues['orphaned'].append(file_info)
+                    issues["orphaned"].append(file_info)
 
         # Check modified (hash mismatch)
         cursor = await conn.execute(
@@ -362,17 +353,21 @@ class FileTracker:
             if path.exists():
                 current_hash = await compute_file_hash(path)
                 if current_hash != db_hash:
-                    issues['modified'].append({
-                        'id': file_id,
-                        'filename': path.name,
-                        'file_path': file_path,
-                        'db_hash': db_hash,
-                        'file_hash': current_hash
-                    })
+                    issues["modified"].append(
+                        {
+                            "id": file_id,
+                            "filename": path.name,
+                            "file_path": file_path,
+                            "db_hash": db_hash,
+                            "file_hash": current_hash,
+                        }
+                    )
 
         return issues
 
-    async def find_untracked_files(self, base_paths: list[Path], pattern: str = "????_??_??__??_??_??*") -> list[Path]:
+    async def find_untracked_files(
+        self, base_paths: list[Path], pattern: str = "????_??_??__??_??_??*"
+    ) -> list[Path]:
         """Find files in base_paths that are not in database.
 
         Args:

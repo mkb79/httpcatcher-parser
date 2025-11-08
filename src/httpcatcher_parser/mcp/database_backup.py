@@ -247,7 +247,7 @@ class Database:
         conn = sqlite3.connect(
             str(self.db_path),
             check_same_thread=False,  # Allow multi-threaded access
-            timeout=30.0  # Wait up to 30 seconds for locks
+            timeout=30.0,  # Wait up to 30 seconds for locks
         )
         conn.row_factory = sqlite3.Row  # Access columns by name
 
@@ -280,13 +280,18 @@ class Database:
         if cursor.fetchone() is None:
             self.conn.execute(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                ("schema_version", SCHEMA_VERSION)
+                ("schema_version", SCHEMA_VERSION),
             )
             import time
-            created_at = int(time.time()) if self.db_path == ":memory:" else int(Path(self.db_path).stat().st_ctime)
+
+            created_at = (
+                int(time.time())
+                if self.db_path == ":memory:"
+                else int(Path(self.db_path).stat().st_ctime)
+            )
             self.conn.execute(
                 "INSERT INTO metadata (key, value) VALUES (?, ?)",
-                ("created_at", str(created_at))
+                ("created_at", str(created_at)),
             )
 
         self.conn.commit()
@@ -337,19 +342,21 @@ class Database:
 
         # Total requests
         cursor = self.conn.execute("SELECT COUNT(*) FROM requests")
-        stats['total_requests'] = cursor.fetchone()[0]
+        stats["total_requests"] = cursor.fetchone()[0]
 
         # Total files
-        cursor = self.conn.execute("SELECT COUNT(*) FROM session_files WHERE status = 'active'")
-        stats['total_files'] = cursor.fetchone()[0]
+        cursor = self.conn.execute(
+            "SELECT COUNT(*) FROM session_files WHERE status = 'active'"
+        )
+        stats["total_files"] = cursor.fetchone()[0]
 
         # Total header keys
         cursor = self.conn.execute("SELECT COUNT(*) FROM header_keys")
-        stats['total_header_keys'] = cursor.fetchone()[0]
+        stats["total_header_keys"] = cursor.fetchone()[0]
 
         # Total cookie keys
         cursor = self.conn.execute("SELECT COUNT(*) FROM cookie_keys")
-        stats['total_cookie_keys'] = cursor.fetchone()[0]
+        stats["total_cookie_keys"] = cursor.fetchone()[0]
 
         return stats
 

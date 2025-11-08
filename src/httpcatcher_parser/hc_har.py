@@ -59,7 +59,9 @@ def _iso(ts_ms: Optional[int]) -> Optional[str]:
         return None
 
 
-def _split_headers_blob_list(payload: bytes) -> tuple[Optional[str], list[tuple[str, str]]]:
+def _split_headers_blob_list(
+    payload: bytes,
+) -> tuple[Optional[str], list[tuple[str, str]]]:
     """Split an HTTP header blob into start line and header pairs (preserves duplicates).
 
     Unlike dict-based parsing, this returns a list of ``(name, value)`` pairs in order,
@@ -106,7 +108,9 @@ def _headers_to_dict_multi(headers_list: list[tuple[str, str]]) -> dict[str, lis
     return out
 
 
-def _parse_req_startline(s: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def _parse_req_startline(
+    s: Optional[str],
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Parse an HTTP request start line (method, target, http version).
 
     Args:
@@ -123,7 +127,9 @@ def _parse_req_startline(s: Optional[str]) -> Tuple[Optional[str], Optional[str]
     return parts[0], parts[1], parts[2]  # method, url/path, httpver
 
 
-def _parse_status_line(s: Optional[str]) -> Tuple[Optional[int], Optional[str], Optional[str]]:
+def _parse_status_line(
+    s: Optional[str],
+) -> Tuple[Optional[int], Optional[str], Optional[str]]:
     """Parse an HTTP status line into its components.
 
     Args:
@@ -195,7 +201,9 @@ def _inflate(data: bytes) -> bytes:
         return zlib.decompress(data, -zlib.MAX_WBITS)
 
 
-def _decode_content(content: bytes, content_encoding: Optional[str]) -> Tuple[bytes, Optional[int]]:
+def _decode_content(
+    content: bytes, content_encoding: Optional[str]
+) -> Tuple[bytes, Optional[int]]:
     """Decode HTTP response content according to ``Content-Encoding``.
 
     Args:
@@ -387,7 +395,10 @@ def _build_url_and_qs(url_or_path: str, host: Optional[str]) -> tuple[str, list[
         url_full = url_or_path
 
     sp = urlsplit(url_full)
-    qs_list = [{"name": k, "value": v} for (k, v) in parse_qsl(sp.query, keep_blank_values=True)]
+    qs_list = [
+        {"name": k, "value": v}
+        for (k, v) in parse_qsl(sp.query, keep_blank_values=True)
+    ]
     return url_full, qs_list
 
 
@@ -545,9 +556,11 @@ def har_from_session(
         post_data = None
         if include_payload and req_raw:
             text, enc = _bytes_as_text_or_b64(req_raw)
-            ct_list = req_headers_multi.get("Content-Type") or req_headers_multi.get(
-                "content-type"
-            ) or []
+            ct_list = (
+                req_headers_multi.get("Content-Type")
+                or req_headers_multi.get("content-type")
+                or []
+            )
             mime = ct_list[0] if ct_list else ""
             post_data = {"mimeType": mime, "text": text}
             if enc:
@@ -565,18 +578,22 @@ def har_from_session(
         reason = reason or agg.reason or ""
 
         resp_raw = b"".join(agg.resp_bodies) if agg.resp_bodies else b""
-        ce_list = resp_headers_multi.get("Content-Encoding") or resp_headers_multi.get(
-            "content-encoding"
-        ) or []
+        ce_list = (
+            resp_headers_multi.get("Content-Encoding")
+            or resp_headers_multi.get("content-encoding")
+            or []
+        )
         content_encoding = ce_list[0] if ce_list else None
         comp_delta: Optional[int] = 0
         body_out = resp_raw
         if decompress_response and resp_raw and content_encoding:
             body_out, comp_delta = _decode_content(resp_raw, content_encoding)
 
-        ct_list = resp_headers_multi.get("Content-Type") or resp_headers_multi.get(
-            "content-type"
-        ) or []
+        ct_list = (
+            resp_headers_multi.get("Content-Type")
+            or resp_headers_multi.get("content-type")
+            or []
+        )
         mime = ct_list[0] if ct_list else ""
 
         content_obj: dict = {
@@ -639,11 +656,18 @@ def har_from_session(
         def _pos(x):  # noqa: ANN001 - local helper; type is validated at call sites
             return x if (isinstance(x, (int, float)) and x >= 0) else 0
 
-        total_time = sum(_pos(timings[k]) for k in ("dns", "connect", "ssl", "send", "wait", "receive"))
+        total_time = sum(
+            _pos(timings[k])
+            for k in ("dns", "connect", "ssl", "send", "wait", "receive")
+        )
 
         # redirectURL: take the first Location header if present
         loc = ""
-        loc_list = resp_headers_multi.get("Location") or resp_headers_multi.get("location") or []
+        loc_list = (
+            resp_headers_multi.get("Location")
+            or resp_headers_multi.get("location")
+            or []
+        )
         if status and 300 <= status < 400 and loc_list:
             loc = loc_list[0]
 
@@ -706,7 +730,9 @@ def main() -> None:
     ap.add_argument("--outdir", help="Output directory (default: result_{basename})")
     ap.add_argument("--outfile", help="Output HAR file name (default: <basename>.har)")
     ap.add_argument(
-        "--include-payload", action="store_true", help="Include request/response bodies in HAR"
+        "--include-payload",
+        action="store_true",
+        help="Include request/response bodies in HAR",
     )
     ap.add_argument(
         "--no-decompress", action="store_true", help="Do not decompress response bodies"

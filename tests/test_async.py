@@ -2,8 +2,8 @@
 """Quick test of async modules."""
 
 import asyncio
-from pathlib import Path
 from src.httpcatcher_parser.mcp.database import Database
+
 
 async def test_database():
     """Test async database connection."""
@@ -23,6 +23,7 @@ async def test_database():
 
     print("✓ Database closed")
 
+
 async def test_file_tracker():
     """Test async file tracker."""
     print("\nTesting async file tracker...")
@@ -36,6 +37,7 @@ async def test_file_tracker():
         files = await tracker.list_files()
         print(f"✓ Listed {len(files)} files")
 
+
 async def main():
     """Run all tests."""
     print("=== Async Module Tests ===\n")
@@ -47,7 +49,9 @@ async def main():
     except Exception as e:
         print(f"\n✗ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

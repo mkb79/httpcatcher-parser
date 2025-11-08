@@ -12,171 +12,212 @@ from .manage import Manager, DEFAULT_DATA_DIR
 def main():
     """Main entry point for hc-mcp CLI."""
     parser = argparse.ArgumentParser(
-        prog="hc-mcp",
-        description="HTTP Catcher MCP Server - Management and Query Tool"
+        prog="hc-mcp", description="HTTP Catcher MCP Server - Management and Query Tool"
     )
     parser.add_argument(
-        '--data-dir',
+        "--data-dir",
         type=Path,
         default=DEFAULT_DATA_DIR,
-        help=f"Data directory (default: {DEFAULT_DATA_DIR})"
+        help=f"Data directory (default: {DEFAULT_DATA_DIR})",
     )
 
-    subparsers = parser.add_subparsers(dest='command', required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
     # ========================================================================
     # INIT Command
     # ========================================================================
-    subparsers.add_parser(
-        'init',
-        help="Initialize directory structure and database"
-    )
+    subparsers.add_parser("init", help="Initialize directory structure and database")
 
     # ========================================================================
     # SERVER Command
     # ========================================================================
     server_parser = subparsers.add_parser(
-        'server',
-        help="Start MCP server (stdio mode)"
+        "server", help="Start MCP server (stdio mode)"
     )
+    server_parser.add_argument("--config", type=Path, help="Path to config file")
     server_parser.add_argument(
-        '--config',
-        type=Path,
-        help="Path to config file"
+        "--log-level",
+        choices=["debug", "info", "warning", "error"],
+        default="info",
+        help="Logging level",
     )
-    server_parser.add_argument(
-        '--log-level',
-        choices=['debug', 'info', 'warning', 'error'],
-        default='info',
-        help="Logging level"
-    )
-    server_parser.add_argument(
-        '--db-path',
-        type=Path,
-        help="Override database path"
-    )
+    server_parser.add_argument("--db-path", type=Path, help="Override database path")
 
     # ========================================================================
     # DB Commands
     # ========================================================================
-    db_parser = subparsers.add_parser('db', help="Database management")
-    db_sub = db_parser.add_subparsers(dest='db_command', required=True)
+    db_parser = subparsers.add_parser("db", help="Database management")
+    db_sub = db_parser.add_subparsers(dest="db_command", required=True)
 
-    db_sub.add_parser('status', help="Show database status")
-    db_sub.add_parser('vacuum', help="Optimize database (VACUUM + ANALYZE)")
-    db_sub.add_parser('stats', help="Detailed statistics")
+    db_sub.add_parser("status", help="Show database status")
+    db_sub.add_parser("vacuum", help="Optimize database (VACUUM + ANALYZE)")
+    db_sub.add_parser("stats", help="Detailed statistics")
 
-    reset_parser = db_sub.add_parser('reset', help="Reset database (delete all data)")
-    reset_parser.add_argument('--confirm', action='store_true', help="Skip confirmation")
+    reset_parser = db_sub.add_parser("reset", help="Reset database (delete all data)")
+    reset_parser.add_argument(
+        "--confirm", action="store_true", help="Skip confirmation"
+    )
 
-    db_sub.add_parser('migrate', help="Run schema migrations")
+    db_sub.add_parser("migrate", help="Run schema migrations")
 
     # ========================================================================
     # FILES Commands
     # ========================================================================
-    files_parser = subparsers.add_parser('files', help="Session file management")
-    files_sub = files_parser.add_subparsers(dest='files_command', required=True)
+    files_parser = subparsers.add_parser("files", help="Session file management")
+    files_sub = files_parser.add_subparsers(dest="files_command", required=True)
 
     # files list
-    list_parser = files_sub.add_parser('list', help="List all session files")
-    list_parser.add_argument('--format', choices=['table', 'json'], default='table')
-    list_parser.add_argument('--sort', choices=['name', 'date', 'size', 'requests'], default='date')
+    list_parser = files_sub.add_parser("list", help="List all session files")
+    list_parser.add_argument("--format", choices=["table", "json"], default="table")
+    list_parser.add_argument(
+        "--sort", choices=["name", "date", "size", "requests"], default="date"
+    )
 
     # files add
-    add_parser = files_sub.add_parser('add', help="Add a session file")
-    add_parser.add_argument('path', type=Path, help="Path to session file")
-    add_parser.add_argument('--name', help="Custom filename")
+    add_parser = files_sub.add_parser("add", help="Add a session file")
+    add_parser.add_argument("path", type=Path, help="Path to session file")
+    add_parser.add_argument("--name", help="Custom filename")
     add_group = add_parser.add_mutually_exclusive_group()
-    add_group.add_argument('--copy', action='store_true', default=True, help="Copy file (default)")
-    add_group.add_argument('--move', action='store_true', help="Move file")
-    add_group.add_argument('--link', action='store_true', help="Create symlink")
+    add_group.add_argument(
+        "--copy", action="store_true", default=True, help="Copy file (default)"
+    )
+    add_group.add_argument("--move", action="store_true", help="Move file")
+    add_group.add_argument("--link", action="store_true", help="Create symlink")
 
     # files add-dir
-    adddir_parser = files_sub.add_parser('add-dir', help="Add all session files from directory")
-    adddir_parser.add_argument('directory', type=Path, help="Directory path")
-    adddir_parser.add_argument('--recursive', action='store_true', help="Scan recursively")
-    adddir_parser.add_argument('--pattern', default='????_??_??__??_??_??*', help="File pattern (default: ????_??_??__??_??_??*)")
+    adddir_parser = files_sub.add_parser(
+        "add-dir", help="Add all session files from directory"
+    )
+    adddir_parser.add_argument("directory", type=Path, help="Directory path")
+    adddir_parser.add_argument(
+        "--recursive", action="store_true", help="Scan recursively"
+    )
+    adddir_parser.add_argument(
+        "--pattern",
+        default="????_??_??__??_??_??*",
+        help="File pattern (default: ????_??_??__??_??_??*)",
+    )
     adddir_group = adddir_parser.add_mutually_exclusive_group()
-    adddir_group.add_argument('--copy', action='store_true', default=True)
-    adddir_group.add_argument('--move', action='store_true')
-    adddir_group.add_argument('--link', action='store_true')
+    adddir_group.add_argument("--copy", action="store_true", default=True)
+    adddir_group.add_argument("--move", action="store_true")
+    adddir_group.add_argument("--link", action="store_true")
 
     # files remove
-    remove_parser = files_sub.add_parser('remove', help="Remove a session file")
-    remove_parser.add_argument('identifier', help="File ID or filename")
-    remove_parser.add_argument('--delete-file', action='store_true', help="Also delete physical file")
+    remove_parser = files_sub.add_parser("remove", help="Remove a session file")
+    remove_parser.add_argument("identifier", help="File ID or filename")
+    remove_parser.add_argument(
+        "--delete-file", action="store_true", help="Also delete physical file"
+    )
 
     # files info
-    info_parser = files_sub.add_parser('info', help="Show detailed file information")
-    info_parser.add_argument('identifier', help="File ID or filename")
+    info_parser = files_sub.add_parser("info", help="Show detailed file information")
+    info_parser.add_argument("identifier", help="File ID or filename")
 
     # files reindex
-    reindex_parser = files_sub.add_parser('reindex', help="Reindex session file(s)")
-    reindex_parser.add_argument('identifier', nargs='?', help="File ID, filename, or --all")
-    reindex_parser.add_argument('--all', action='store_true', help="Reindex all files")
+    reindex_parser = files_sub.add_parser("reindex", help="Reindex session file(s)")
+    reindex_parser.add_argument(
+        "identifier", nargs="?", help="File ID, filename, or --all"
+    )
+    reindex_parser.add_argument("--all", action="store_true", help="Reindex all files")
 
     # files check
-    check_parser = files_sub.add_parser('check', help="Check consistency between DB and filesystem")
-    check_parser.add_argument('--fix', action='store_true', help="Automatically fix issues")
+    check_parser = files_sub.add_parser(
+        "check", help="Check consistency between DB and filesystem"
+    )
+    check_parser.add_argument(
+        "--fix", action="store_true", help="Automatically fix issues"
+    )
 
     # ========================================================================
     # SEARCH Commands
     # ========================================================================
-    search_parser = subparsers.add_parser('search', help="Search HTTP requests")
-    search_parser.add_argument('--method', help="Filter by HTTP method")
-    search_parser.add_argument('--url', help="Filter by URL (contains)")
-    search_parser.add_argument('--host', help="Filter by host (contains)")
-    search_parser.add_argument('--path', help="Filter by path (contains)")
-    search_parser.add_argument('--status', type=int, help="Filter by status code")
-    search_parser.add_argument('--status-min', type=int, help="Minimum status code")
-    search_parser.add_argument('--status-max', type=int, help="Maximum status code")
-    search_parser.add_argument('--header', action='append', help="Header filter (format: key:value or :value or key:)")
-    search_parser.add_argument('--cookie', action='append', help="Cookie filter (format: key:value or :value or key:)")
-    search_parser.add_argument('--body', help="Search in body content")
-    search_parser.add_argument('--limit', type=int, default=100, help="Max results (default: 100)")
-    search_parser.add_argument('--offset', type=int, default=0, help="Skip N results")
-    search_parser.add_argument('--format', choices=['table', 'json'], default='table', help="Output format")
-    search_parser.add_argument('--sort', choices=['time', 'duration', 'status'], default='time', help="Sort by")
-    search_parser.add_argument('--asc', action='store_true', help="Sort ascending (default: descending)")
+    search_parser = subparsers.add_parser("search", help="Search HTTP requests")
+    search_parser.add_argument("--method", help="Filter by HTTP method")
+    search_parser.add_argument("--url", help="Filter by URL (contains)")
+    search_parser.add_argument("--host", help="Filter by host (contains)")
+    search_parser.add_argument("--path", help="Filter by path (contains)")
+    search_parser.add_argument("--status", type=int, help="Filter by status code")
+    search_parser.add_argument("--status-min", type=int, help="Minimum status code")
+    search_parser.add_argument("--status-max", type=int, help="Maximum status code")
+    search_parser.add_argument(
+        "--header",
+        action="append",
+        help="Header filter (format: key:value or :value or key:)",
+    )
+    search_parser.add_argument(
+        "--cookie",
+        action="append",
+        help="Cookie filter (format: key:value or :value or key:)",
+    )
+    search_parser.add_argument("--body", help="Search in body content")
+    search_parser.add_argument(
+        "--limit", type=int, default=100, help="Max results (default: 100)"
+    )
+    search_parser.add_argument("--offset", type=int, default=0, help="Skip N results")
+    search_parser.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
+    search_parser.add_argument(
+        "--sort", choices=["time", "duration", "status"], default="time", help="Sort by"
+    )
+    search_parser.add_argument(
+        "--asc", action="store_true", help="Sort ascending (default: descending)"
+    )
 
     # ========================================================================
     # STATS Command
     # ========================================================================
-    stats_parser = subparsers.add_parser('stats', help="Show statistics")
-    stats_parser.add_argument('--file', help="Filter by file ID or filename")
-    stats_parser.add_argument('--format', choices=['table', 'json'], default='table', help="Output format")
+    stats_parser = subparsers.add_parser("stats", help="Show statistics")
+    stats_parser.add_argument("--file", help="Filter by file ID or filename")
+    stats_parser.add_argument(
+        "--format", choices=["table", "json"], default="table", help="Output format"
+    )
 
     # ========================================================================
     # KEYS Command
     # ========================================================================
-    keys_parser = subparsers.add_parser('keys', help="List available header/cookie keys")
-    keys_parser.add_argument('type', choices=['header', 'cookie'], help="Key type")
-    keys_parser.add_argument('--prefix', help="Filter by prefix (autocomplete)")
-    keys_parser.add_argument('--limit', type=int, default=50, help="Max results")
+    keys_parser = subparsers.add_parser(
+        "keys", help="List available header/cookie keys"
+    )
+    keys_parser.add_argument("type", choices=["header", "cookie"], help="Key type")
+    keys_parser.add_argument("--prefix", help="Filter by prefix (autocomplete)")
+    keys_parser.add_argument("--limit", type=int, default=50, help="Max results")
 
     # ========================================================================
     # DETAILS Command
     # ========================================================================
-    details_parser = subparsers.add_parser('details', help="Show request details")
-    details_parser.add_argument('request_id', type=int, help="Request ID")
-    details_parser.add_argument('--level', choices=['full', 'headers', 'request', 'response', 'metadata'],
-                                default='full', help="Detail level")
-    details_parser.add_argument('--full-body', action='store_true', help="Show complete body without truncation")
-    details_parser.add_argument('--pretty-json', action='store_true', help="Pretty-print JSON bodies with indentation")
-    details_parser.add_argument('--format', choices=['pretty', 'json'], default='pretty', help="Output format")
+    details_parser = subparsers.add_parser("details", help="Show request details")
+    details_parser.add_argument("request_id", type=int, help="Request ID")
+    details_parser.add_argument(
+        "--level",
+        choices=["full", "headers", "request", "response", "metadata"],
+        default="full",
+        help="Detail level",
+    )
+    details_parser.add_argument(
+        "--full-body", action="store_true", help="Show complete body without truncation"
+    )
+    details_parser.add_argument(
+        "--pretty-json",
+        action="store_true",
+        help="Pretty-print JSON bodies with indentation",
+    )
+    details_parser.add_argument(
+        "--format", choices=["pretty", "json"], default="pretty", help="Output format"
+    )
 
     # ========================================================================
     # CONFIG Commands
     # ========================================================================
-    config_parser = subparsers.add_parser('config', help="Configuration management")
-    config_sub = config_parser.add_subparsers(dest='config_command', required=True)
+    config_parser = subparsers.add_parser("config", help="Configuration management")
+    config_sub = config_parser.add_subparsers(dest="config_command", required=True)
 
-    get_parser = config_sub.add_parser('get', help="Get configuration value")
-    get_parser.add_argument('key', nargs='?', help="Config key (omit to show all)")
+    get_parser = config_sub.add_parser("get", help="Get configuration value")
+    get_parser.add_argument("key", nargs="?", help="Config key (omit to show all)")
 
-    set_parser = config_sub.add_parser('set', help="Set configuration value")
-    set_parser.add_argument('key', help="Config key")
-    set_parser.add_argument('value', help="Config value")
+    set_parser = config_sub.add_parser("set", help="Set configuration value")
+    set_parser.add_argument("key", help="Config key")
+    set_parser.add_argument("value", help="Config value")
 
     # ========================================================================
     # Parse and Route
@@ -188,56 +229,56 @@ def main():
 
     # Route to appropriate handler
     try:
-        if args.command == 'init':
+        if args.command == "init":
             manager.cmd_init(args)
 
-        elif args.command == 'server':
+        elif args.command == "server":
             manager.cmd_server(args)
 
-        elif args.command == 'db':
-            if args.db_command == 'status':
+        elif args.command == "db":
+            if args.db_command == "status":
                 manager.cmd_db_status(args)
-            elif args.db_command == 'vacuum':
+            elif args.db_command == "vacuum":
                 manager.cmd_db_vacuum(args)
-            elif args.db_command == 'stats':
+            elif args.db_command == "stats":
                 manager.cmd_db_stats(args)
-            elif args.db_command == 'reset':
+            elif args.db_command == "reset":
                 manager.cmd_db_reset(args)
-            elif args.db_command == 'migrate':
+            elif args.db_command == "migrate":
                 manager.cmd_db_migrate(args)
 
-        elif args.command == 'files':
-            if args.files_command == 'list':
+        elif args.command == "files":
+            if args.files_command == "list":
                 manager.cmd_files_list(args)
-            elif args.files_command == 'add':
+            elif args.files_command == "add":
                 manager.cmd_files_add(args)
-            elif args.files_command == 'add-dir':
+            elif args.files_command == "add-dir":
                 manager.cmd_files_add_dir(args)
-            elif args.files_command == 'remove':
+            elif args.files_command == "remove":
                 manager.cmd_files_remove(args)
-            elif args.files_command == 'info':
+            elif args.files_command == "info":
                 manager.cmd_files_info(args)
-            elif args.files_command == 'reindex':
+            elif args.files_command == "reindex":
                 manager.cmd_files_reindex(args)
-            elif args.files_command == 'check':
+            elif args.files_command == "check":
                 manager.cmd_files_check(args)
 
-        elif args.command == 'search':
+        elif args.command == "search":
             manager.cmd_search(args)
 
-        elif args.command == 'stats':
+        elif args.command == "stats":
             manager.cmd_stats(args)
 
-        elif args.command == 'keys':
+        elif args.command == "keys":
             manager.cmd_keys(args)
 
-        elif args.command == 'details':
+        elif args.command == "details":
             manager.cmd_details(args)
 
-        elif args.command == 'config':
-            if args.config_command == 'get':
+        elif args.command == "config":
+            if args.config_command == "get":
                 manager.cmd_config_get(args)
-            elif args.config_command == 'set':
+            elif args.config_command == "set":
                 manager.cmd_config_set(args)
 
     except KeyboardInterrupt:
@@ -245,7 +286,7 @@ def main():
         sys.exit(130)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
-        if '--debug' in sys.argv:
+        if "--debug" in sys.argv:
             raise
         sys.exit(1)
 

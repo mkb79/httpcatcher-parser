@@ -19,7 +19,7 @@ from ..hc_parser import (
     ResponseBody,
     ResponseHeader,
 )
-from .content_analyzer import categorize_content_type, parse_content_type
+from .content_analyzer import categorize_content_type
 from .database import Database
 
 
@@ -78,13 +78,12 @@ class KeyIndexer:
         # Use INSERT OR IGNORE to handle race conditions in parallel processing
         await conn.execute(
             "INSERT OR IGNORE INTO header_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
-            (name, name.lower())
+            (name, name.lower()),
         )
 
         # Always SELECT to get the ID (whether we inserted it or it already existed)
         cursor = await conn.execute(
-            "SELECT id FROM header_keys WHERE name = ?",
-            (name,)
+            "SELECT id FROM header_keys WHERE name = ?", (name,)
         )
         row = await cursor.fetchone()
         key_id = row[0]
@@ -102,13 +101,12 @@ class KeyIndexer:
         # Use INSERT OR IGNORE to handle race conditions in parallel processing
         await conn.execute(
             "INSERT OR IGNORE INTO cookie_keys (name, name_lower, usage_count) VALUES (?, ?, 0)",
-            (name, name.lower())
+            (name, name.lower()),
         )
 
         # Always SELECT to get the ID (whether we inserted it or it already existed)
         cursor = await conn.execute(
-            "SELECT id FROM cookie_keys WHERE name = ?",
-            (name,)
+            "SELECT id FROM cookie_keys WHERE name = ?", (name,)
         )
         row = await cursor.fetchone()
         key_id = row[0]
@@ -133,7 +131,9 @@ class KeyIndexer:
             self._cookie_cache[name] = key_id
 
 
-def _parse_headers(payload: Optional[bytes]) -> tuple[Optional[str], list[tuple[str, str]]]:
+def _parse_headers(
+    payload: Optional[bytes],
+) -> tuple[Optional[str], list[tuple[str, str]]]:
     """Parse HTTP header blob into start line and header pairs."""
     if not payload:
         return None, []
@@ -161,7 +161,9 @@ def _parse_headers(payload: Optional[bytes]) -> tuple[Optional[str], list[tuple[
     return first, pairs
 
 
-def _parse_cookies_from_headers(headers: list[tuple[str, str]]) -> list[tuple[str, str]]:
+def _parse_cookies_from_headers(
+    headers: list[tuple[str, str]],
+) -> list[tuple[str, str]]:
     """Extract cookies from Cookie headers."""
     cookies: list[tuple[str, str]] = []
     for k, v in headers:
@@ -187,14 +189,14 @@ def _parse_set_cookies(headers: list[tuple[str, str]]) -> list[dict]:
 
         cname, cval = parts[0].split("=", 1)
         cookie = {
-            'name': cname.strip(),
-            'value': cval.strip(),
-            'domain': None,
-            'path': None,
-            'expires': None,
-            'http_only': False,
-            'secure': False,
-            'same_site': None,
+            "name": cname.strip(),
+            "value": cval.strip(),
+            "domain": None,
+            "path": None,
+            "expires": None,
+            "http_only": False,
+            "secure": False,
+            "same_site": None,
         }
 
         for attr in parts[1:]:
@@ -205,17 +207,17 @@ def _parse_set_cookies(headers: list[tuple[str, str]]) -> list[dict]:
             aval = kv[1].strip() if len(kv) == 2 else None
 
             if aname == "path" and aval:
-                cookie['path'] = aval
+                cookie["path"] = aval
             elif aname == "domain" and aval:
-                cookie['domain'] = aval
+                cookie["domain"] = aval
             elif aname == "expires" and aval:
-                cookie['expires'] = aval
+                cookie["expires"] = aval
             elif aname == "samesite" and aval:
-                cookie['same_site'] = aval
+                cookie["same_site"] = aval
             elif aname == "httponly":
-                cookie['http_only'] = True
+                cookie["http_only"] = True
             elif aname == "secure":
-                cookie['secure'] = True
+                cookie["secure"] = True
 
         cookies.append(cookie)
 
@@ -264,16 +266,17 @@ class Indexer:
 
         # Import FileTracker here to avoid circular import
         from .file_tracker import FileTracker
+
         file_tracker = FileTracker(self.db)
 
         # Check if reindex needed
         if not force_reindex and not await file_tracker.file_needs_reindex(file_path):
             file_id = await file_tracker.resolve_file_id(str(file_path))
             return {
-                'indexed': False,
-                'requests_added': 0,
-                'file_id': file_id,
-                'reason': 'unchanged'
+                "indexed": False,
+                "requests_added": 0,
+                "file_id": file_id,
+                "reason": "unchanged",
             }
 
         # Add/update file in tracker
@@ -289,11 +292,7 @@ class Indexer:
         # Batch insert into database
         requests_added = await self._bulk_insert(file_id, aggregations)
 
-        return {
-            'indexed': True,
-            'requests_added': requests_added,
-            'file_id': file_id
-        }
+        return {"indexed": True, "requests_added": requests_added, "file_id": file_id}
 
     def _parse_file(self, file_path: Path) -> dict[int, RequestAggregation]:
         """Parse file and aggregate by request_id."""
@@ -305,12 +304,16 @@ class Indexer:
                 connections[item.connection_id] = item
 
             elif isinstance(item, RequestMainInfo):
-                agg = aggregations.setdefault(item.request_id, RequestAggregation(item.request_id))
+                agg = aggregations.setdefault(
+                    item.request_id, RequestAggregation(item.request_id)
+                )
                 agg.connection_id = item.connection_id
                 agg.rmi_ts_leading = item.ts_leading
 
             elif isinstance(item, RequestHeader):
-                agg = aggregations.setdefault(item.request_id, RequestAggregation(item.request_id))
+                agg = aggregations.setdefault(
+                    item.request_id, RequestAggregation(item.request_id)
+                )
                 agg.req_header_ts = item.ts_post
                 agg.req_header_payload = item.payload
 
@@ -321,12 +324,16 @@ class Indexer:
                 agg.url = url
 
             elif isinstance(item, RequestBody):
-                agg = aggregations.setdefault(item.request_id, RequestAggregation(item.request_id))
+                agg = aggregations.setdefault(
+                    item.request_id, RequestAggregation(item.request_id)
+                )
                 if item.payload:
                     agg.req_bodies.append(item.payload)
 
             elif isinstance(item, ResponseHeader):
-                agg = aggregations.setdefault(item.request_id, RequestAggregation(item.request_id))
+                agg = aggregations.setdefault(
+                    item.request_id, RequestAggregation(item.request_id)
+                )
                 agg.resp_header_ts = item.ts_post
                 agg.resp_header_payload = item.payload
 
@@ -335,7 +342,9 @@ class Indexer:
                 agg.status_code = _parse_status_line(first)
 
             elif isinstance(item, ResponseBody):
-                agg = aggregations.setdefault(item.request_id, RequestAggregation(item.request_id))
+                agg = aggregations.setdefault(
+                    item.request_id, RequestAggregation(item.request_id)
+                )
                 if item.payload:
                     agg.resp_bodies.append(item.payload)
                 agg.resp_last_ts = item.ts_post
@@ -345,13 +354,15 @@ class Indexer:
             if agg.connection_id and agg.connection_id in connections:
                 conn = connections[agg.connection_id]
                 agg.host = conn.host
-                if agg.url and agg.url.startswith('/'):
+                if agg.url and agg.url.startswith("/"):
                     agg.path = agg.url
                     agg.url = f"https://{conn.host}{agg.url}"
 
         return aggregations
 
-    async def _bulk_insert(self, file_id: int, aggregations: dict[int, RequestAggregation]) -> int:
+    async def _bulk_insert(
+        self, file_id: int, aggregations: dict[int, RequestAggregation]
+    ) -> int:
         """Bulk insert aggregated data into database."""
         if not aggregations:
             return 0
@@ -371,22 +382,32 @@ class Indexer:
             _, resp_headers = _parse_headers(agg.resp_header_payload)
 
             # Get content types
-            req_ct = next((v for k, v in req_headers if k.lower() == 'content-type'), None)
-            resp_ct = next((v for k, v in resp_headers if k.lower() == 'content-type'), None)
+            req_ct = next(
+                (v for k, v in req_headers if k.lower() == "content-type"), None
+            )
+            resp_ct = next(
+                (v for k, v in resp_headers if k.lower() == "content-type"), None
+            )
             resp_ct_category = categorize_content_type(resp_ct)
 
             # Serialize headers/cookies to JSON for quick detail retrieval
-            req_headers_json = json.dumps([{'name': k, 'value': v} for k, v in req_headers])
-            resp_headers_json = json.dumps([{'name': k, 'value': v} for k, v in resp_headers])
+            req_headers_json = json.dumps(
+                [{"name": k, "value": v} for k, v in req_headers]
+            )
+            resp_headers_json = json.dumps(
+                [{"name": k, "value": v} for k, v in resp_headers]
+            )
 
             req_cookies = _parse_cookies_from_headers(req_headers)
             resp_cookies_list = _parse_set_cookies(resp_headers)
-            req_cookies_json = json.dumps([{'name': n, 'value': v} for n, v in req_cookies])
+            req_cookies_json = json.dumps(
+                [{"name": n, "value": v} for n, v in req_cookies]
+            )
             resp_cookies_json = json.dumps(resp_cookies_list)
 
             # Body sizes and previews
-            req_body = b''.join(agg.req_bodies)
-            resp_body = b''.join(agg.resp_bodies)
+            req_body = b"".join(agg.req_bodies)
+            resp_body = b"".join(agg.resp_bodies)
 
             # Decompress bodies if Content-Encoding indicates compression
             req_encoding = self._detect_encoding(req_headers)
@@ -399,8 +420,12 @@ class Indexer:
                 resp_body = self._try_decompress(resp_body, resp_encoding)
 
             # Generate previews from decompressed bodies
-            req_body_preview = req_body[:500].decode('utf-8', 'replace') if req_body else None
-            resp_body_preview = resp_body[:500].decode('utf-8', 'replace') if resp_body else None
+            req_body_preview = (
+                req_body[:500].decode("utf-8", "replace") if req_body else None
+            )
+            resp_body_preview = (
+                resp_body[:500].decode("utf-8", "replace") if resp_body else None
+            )
 
             # Calculate duration
             duration_ms = None
@@ -408,20 +433,39 @@ class Indexer:
                 duration_ms = agg.resp_header_ts - agg.req_header_ts
 
             # Insert request (without id - will be auto-generated)
-            requests_batch.append((
-                file_id, req_id,  # file_id, original_request_id
-                agg.method, agg.url, agg.host, agg.path, agg.status_code,
-                agg.req_header_ts, agg.resp_header_ts, duration_ms,
-                agg.connection_id, None,  # port TODO: get from connection
-                req_ct, resp_ct, resp_ct_category,
-                req_headers_json, resp_headers_json,
-                req_cookies_json, resp_cookies_json,
-                len(req_body), len(resp_body),
-                None, None, None, None,  # body offsets (kept for future file-based storage)
-                req_body if req_body else None,  # req_body_blob
-                resp_body if resp_body else None,  # resp_body_blob
-                req_body_preview, resp_body_preview
-            ))
+            requests_batch.append(
+                (
+                    file_id,
+                    req_id,  # file_id, original_request_id
+                    agg.method,
+                    agg.url,
+                    agg.host,
+                    agg.path,
+                    agg.status_code,
+                    agg.req_header_ts,
+                    agg.resp_header_ts,
+                    duration_ms,
+                    agg.connection_id,
+                    None,  # port TODO: get from connection
+                    req_ct,
+                    resp_ct,
+                    resp_ct_category,
+                    req_headers_json,
+                    resp_headers_json,
+                    req_cookies_json,
+                    resp_cookies_json,
+                    len(req_body),
+                    len(resp_body),
+                    None,
+                    None,
+                    None,
+                    None,  # body offsets (kept for future file-based storage)
+                    req_body if req_body else None,  # req_body_blob
+                    resp_body if resp_body else None,  # resp_body_blob
+                    req_body_preview,
+                    resp_body_preview,
+                )
+            )
 
             # Store headers/cookies data for later insertion with correct db IDs
             headers_data[req_id] = (req_headers, resp_headers)
@@ -444,13 +488,12 @@ class Indexer:
                 req_body_preview, resp_body_preview
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            requests_batch
+            requests_batch,
         )
 
         # Get the mapping of original_request_id -> new db id
         cursor = await conn.execute(
-            "SELECT id, original_request_id FROM requests WHERE file_id = ?",
-            (file_id,)
+            "SELECT id, original_request_id FROM requests WHERE file_id = ?", (file_id,)
         )
         id_mapping = {orig_id: db_id async for db_id, orig_id in cursor}
 
@@ -485,31 +528,38 @@ class Indexer:
                 req_cookies_batch.append((db_id, key_id, value))
 
             for cookie in resp_cookies_list:
-                key_id = await key_indexer.get_or_create_cookie_key(cookie['name'])
-                resp_cookies_batch.append((
-                    db_id, key_id, cookie['value'],
-                    cookie.get('domain'), cookie.get('path'), cookie.get('expires'),
-                    cookie.get('http_only', False), cookie.get('secure', False),
-                    cookie.get('same_site')
-                ))
+                key_id = await key_indexer.get_or_create_cookie_key(cookie["name"])
+                resp_cookies_batch.append(
+                    (
+                        db_id,
+                        key_id,
+                        cookie["value"],
+                        cookie.get("domain"),
+                        cookie.get("path"),
+                        cookie.get("expires"),
+                        cookie.get("http_only", False),
+                        cookie.get("secure", False),
+                        cookie.get("same_site"),
+                    )
+                )
 
         # Insert headers and cookies
         if req_headers_batch:
             await conn.executemany(
                 "INSERT INTO request_headers (request_id, key_id, value) VALUES (?, ?, ?)",
-                req_headers_batch
+                req_headers_batch,
             )
 
         if resp_headers_batch:
             await conn.executemany(
                 "INSERT INTO response_headers (request_id, key_id, value) VALUES (?, ?, ?)",
-                resp_headers_batch
+                resp_headers_batch,
             )
 
         if req_cookies_batch:
             await conn.executemany(
                 "INSERT INTO request_cookies (request_id, key_id, value) VALUES (?, ?, ?)",
-                req_cookies_batch
+                req_cookies_batch,
             )
 
         if resp_cookies_batch:
@@ -519,7 +569,7 @@ class Indexer:
                 (request_id, key_id, value, domain, path, expires, http_only, secure, same_site)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                resp_cookies_batch
+                resp_cookies_batch,
             )
 
         await conn.commit()
@@ -537,14 +587,14 @@ class Indexer:
             Encoding name: 'gzip', 'br', 'deflate', or None
         """
         for name, value in headers:
-            if name.lower() == 'content-encoding':
+            if name.lower() == "content-encoding":
                 value_lower = value.lower()
-                if 'gzip' in value_lower:
-                    return 'gzip'
-                elif 'br' in value_lower:
-                    return 'br'
-                elif 'deflate' in value_lower:
-                    return 'deflate'
+                if "gzip" in value_lower:
+                    return "gzip"
+                elif "br" in value_lower:
+                    return "br"
+                elif "deflate" in value_lower:
+                    return "deflate"
         return None
 
     @staticmethod
@@ -561,19 +611,19 @@ class Indexer:
         if not data or not encoding:
             return data
 
-        if encoding == 'gzip':
+        if encoding == "gzip":
             try:
                 return gzip.decompress(data)
             except Exception:
                 pass
 
-        elif encoding == 'br':
+        elif encoding == "br":
             try:
                 return brotli.decompress(data)
             except Exception:
                 pass
 
-        elif encoding == 'deflate':
+        elif encoding == "deflate":
             try:
                 return zlib.decompress(data)
             except Exception:

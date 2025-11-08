@@ -2,7 +2,6 @@
 """Test MCP server async integration."""
 
 import asyncio
-import json
 import tempfile
 from pathlib import Path
 from src.httpcatcher_parser.mcp.server import HttpCatcherMCPServer
@@ -37,6 +36,7 @@ async def test_mcp_server():
         except Exception as e:
             print(f"✗ list_files failed: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -47,19 +47,18 @@ async def test_mcp_server():
         except Exception as e:
             print(f"✗ get_stats failed: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
         # Test search_requests tool
         try:
-            result = await server._search_requests({
-                "limit": 10,
-                "offset": 0
-            })
+            result = await server._search_requests({"limit": 10, "offset": 0})
             print(f"✓ search_requests works: {result[0]['count']} results")
         except Exception as e:
             print(f"✗ search_requests failed: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -70,31 +69,32 @@ async def test_mcp_server():
         except Exception as e:
             print(f"✗ get_available_keys failed: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
         # Test autocomplete_key tool
         try:
-            result = await server._autocomplete_key({
-                "prefix": "Content",
-                "key_type": "header",
-                "limit": 10
-            })
+            result = await server._autocomplete_key(
+                {"prefix": "Content", "key_type": "header", "limit": 10}
+            )
             print(f"✓ autocomplete_key works: {len(result)} matches")
         except Exception as e:
             print(f"✗ autocomplete_key failed: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SUCCESS: All MCP server tools are working with async!")
-    print("="*60)
+    print("=" * 60)
     print("\nThe MCP server is ready for Claude Desktop integration.")
     return True
 
 
 if __name__ == "__main__":
+
     async def main():
         try:
             success = await test_mcp_server()
@@ -102,6 +102,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n✗ Test failed: {e}")
             import traceback
+
             traceback.print_exc()
             return 1
 
