@@ -131,6 +131,10 @@ uv run --extra mcp hc-mcp search --after "2025-01-01" --before "2025-12-31"
 
 # Limit results
 uv run --extra mcp hc-mcp search --limit 10 --offset 20
+
+# Filter by specific session files (by ID, name, or path)
+uv run --extra mcp hc-mcp search --file session1.hcs --method POST
+uv run --extra mcp hc-mcp search --file 1 --file 3  # Multiple files
 ```
 
 **View request details:**
@@ -236,13 +240,29 @@ Once configured, Claude Desktop can use these tools:
 - **`search_requests`** - Search with flexible filters and field selection
 - **`get_request_details`** - Get detailed request/response information
 - **`get_stats`** - Get database statistics and breakdowns
-- **`list_session_files`** - List indexed session files
+- **`list_files`** - List indexed session files with request counts
+- **`get_available_keys`** - Get all header/cookie key names
+- **`autocomplete_key`** - Autocomplete header/cookie keys
+- **`index_file`** - Index a new session file into database
+
+**Typical Workflow with MCP:**
+```
+1. List available session files:
+   → list_files(sort_by="date")
+
+2. Search in specific files:
+   → search_requests(file_ids=[1, 3], method="POST")
+
+3. Get request details:
+   → get_request_details(request_id=12345, detail_level="full")
+```
 
 **Context Optimization:**
 - Use `fields: "minimal"` for 85% token reduction
 - Use `detail_level: "summary"` for 95% token reduction
 - Set `body_format: "size_only"` to skip body content
 - Enable `sparse_mode` for absolute minimum data
+- Filter by `file_ids` to search only relevant sessions
 
 ---
 

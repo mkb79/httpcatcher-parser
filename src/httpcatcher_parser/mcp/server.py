@@ -76,7 +76,11 @@ class HttpCatcherMCPServer:
                         "- full: all fields (high context cost!)\n\n"
                         "FILTERS:\n"
                         "Supports filtering by method, URL, host, path, status codes, "
-                        "headers, cookies, body content, time ranges, and content types."
+                        "headers, cookies, body content, time ranges, and content types.\n\n"
+                        "FILE FILTERING:\n"
+                        "- Use 'file_ids' to search only in specific session files\n"
+                        "- Get file IDs with the 'list_files' tool\n"
+                        "- Example: file_ids=[1, 3] searches only in files 1 and 3"
                     ),
                     inputSchema={
                         "type": "object",
