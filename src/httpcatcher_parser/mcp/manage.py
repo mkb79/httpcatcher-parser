@@ -971,6 +971,25 @@ class Manager:
         # Execute search with async
         async def do_search():
             async with Database(self.db_path) as db:
+                # Resolve file IDs if specified
+                if args.file:
+                    from .file_tracker import FileTracker
+
+                    tracker = FileTracker(db)
+                    file_ids = []
+                    for file_spec in args.file:
+                        file_id = await tracker.resolve_file_id(file_spec)
+                        if not file_id:
+                            print(f"Warning: File not found: {file_spec}")
+                            continue
+                        file_ids.append(file_id)
+
+                    if not file_ids:
+                        print("Error: No valid files specified")
+                        sys.exit(1)
+
+                    filters.file_ids = file_ids
+
                 engine = QueryEngine(db)
                 results = await engine.search_requests(filters)
                 total = await engine.count_requests(filters)

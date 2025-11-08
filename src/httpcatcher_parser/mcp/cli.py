@@ -151,6 +151,11 @@ def main():
     )
     search_parser.add_argument("--body", help="Search in body content")
     search_parser.add_argument(
+        "--file",
+        action="append",
+        help="Filter by session file (file ID, name, or path). Can be specified multiple times.",
+    )
+    search_parser.add_argument(
         "--limit", type=int, default=100, help="Max results (default: 100)"
     )
     search_parser.add_argument("--offset", type=int, default=0, help="Skip N results")
