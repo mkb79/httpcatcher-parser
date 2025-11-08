@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import brotli
+import gzip
 import json
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -384,6 +387,18 @@ class Indexer:
             # Body sizes and previews
             req_body = b''.join(agg.req_bodies)
             resp_body = b''.join(agg.resp_bodies)
+
+            # Decompress bodies if Content-Encoding indicates compression
+            req_encoding = self._detect_encoding(req_headers)
+            resp_encoding = self._detect_encoding(resp_headers)
+
+            if req_body and req_encoding:
+                req_body = self._try_decompress(req_body, req_encoding)
+
+            if resp_body and resp_encoding:
+                resp_body = self._try_decompress(resp_body, resp_encoding)
+
+            # Generate previews from decompressed bodies
             req_body_preview = req_body[:500].decode('utf-8', 'replace') if req_body else None
             resp_body_preview = resp_body[:500].decode('utf-8', 'replace') if resp_body else None
 
@@ -510,3 +525,66 @@ class Indexer:
         await conn.commit()
 
         return len(requests_batch)
+
+    @staticmethod
+    def _detect_encoding(headers: list[tuple[str, str]]) -> Optional[str]:
+        """Detect compression encoding from Content-Encoding header.
+
+        Args:
+            headers: List of header tuples (name, value)
+
+        Returns:
+            Encoding name: 'gzip', 'br', 'deflate', or None
+        """
+        for name, value in headers:
+            if name.lower() == 'content-encoding':
+                value_lower = value.lower()
+                if 'gzip' in value_lower:
+                    return 'gzip'
+                elif 'br' in value_lower:
+                    return 'br'
+                elif 'deflate' in value_lower:
+                    return 'deflate'
+        return None
+
+    @staticmethod
+    def _try_decompress(data: bytes, encoding: Optional[str]) -> bytes:
+        """Try to decompress body based on content encoding.
+
+        Args:
+            data: Compressed body data
+            encoding: Detected encoding type ('gzip', 'br', 'deflate', or None)
+
+        Returns:
+            Decompressed data or original data if decompression fails
+        """
+        if not data or not encoding:
+            return data
+
+        if encoding == 'gzip':
+            try:
+                return gzip.decompress(data)
+            except Exception:
+                pass
+
+        elif encoding == 'br':
+            try:
+                return brotli.decompress(data)
+            except Exception:
+                pass
+
+        elif encoding == 'deflate':
+            try:
+                return zlib.decompress(data)
+            except Exception:
+                pass
+
+        # If specific encoding failed, try all methods
+        for decompressor in [gzip.decompress, brotli.decompress, zlib.decompress]:
+            try:
+                return decompressor(data)
+            except Exception:
+                continue
+
+        # Return original if all fail
+        return data
