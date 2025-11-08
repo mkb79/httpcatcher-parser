@@ -1209,8 +1209,8 @@ class Manager:
                         try:
                             body_str = body.decode('utf-8', errors='replace')
 
-                            # Try to pretty-print JSON
-                            if details.get('req_content_type', '').lower().startswith('application/json'):
+                            # Try to pretty-print JSON if requested
+                            if args.pretty_json and details.get('req_content_type', '').lower().startswith('application/json'):
                                 try:
                                     import json
                                     json_obj = json.loads(body_str)
@@ -1254,8 +1254,8 @@ class Manager:
                         try:
                             body_str = body.decode('utf-8', errors='replace')
 
-                            # Try to pretty-print JSON
-                            if details.get('resp_content_type', '').lower().startswith('application/json'):
+                            # Try to pretty-print JSON if requested
+                            if args.pretty_json and details.get('resp_content_type', '').lower().startswith('application/json'):
                                 try:
                                     import json
                                     json_obj = json.loads(body_str)

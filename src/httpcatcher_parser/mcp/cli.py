@@ -162,6 +162,7 @@ def main():
     details_parser.add_argument('--level', choices=['full', 'headers', 'request', 'response', 'metadata'],
                                 default='full', help="Detail level")
     details_parser.add_argument('--full-body', action='store_true', help="Show complete body without truncation")
+    details_parser.add_argument('--pretty-json', action='store_true', help="Pretty-print JSON bodies with indentation")
     details_parser.add_argument('--format', choices=['pretty', 'json'], default='pretty', help="Output format")
 
     # ========================================================================
