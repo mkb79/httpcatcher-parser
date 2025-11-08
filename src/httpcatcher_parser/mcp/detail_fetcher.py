@@ -1,11 +1,8 @@
-"""Async request detail fetcher with lazy body loading and decompression."""
+"""Async request detail fetcher with lazy body loading."""
 
 from __future__ import annotations
 
-import brotli
-import gzip
 import json
-import zlib
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -39,15 +36,13 @@ class DetailFetcher:
     async def get_request_details(
         self,
         request_id: int,
-        detail_level: DetailLevel = DetailLevel.FULL,
-        decompress_bodies: bool = False
+        detail_level: DetailLevel = DetailLevel.FULL
     ) -> Optional[dict]:
         """Get request details with optional body loading.
 
         Args:
             request_id: Request ID
             detail_level: Level of detail to fetch
-            decompress_bodies: If True, decompress compressed bodies
 
         Returns:
             Dict with request details or None if not found
@@ -137,10 +132,7 @@ class DetailFetcher:
             elif row[21] is not None and row[23] is not None:  # req_body_offset, req_body_length
                 body_data = await self._load_body_from_file(file_path, row[21], row[23])
 
-            # Decompress if needed
-            if body_data and decompress_bodies and row[12]:  # req_content_type
-                body_data = self._try_decompress(body_data, row[12])
-
+            # Bodies are already decompressed during indexing
             if body_data is not None:
                 details['request']['body'] = body_data
 
@@ -154,10 +146,7 @@ class DetailFetcher:
             elif row[22] is not None and row[24] is not None:  # resp_body_offset, resp_body_length
                 body_data = await self._load_body_from_file(file_path, row[22], row[24])
 
-            # Decompress if needed
-            if body_data and decompress_bodies and row[13]:  # resp_content_type
-                body_data = self._try_decompress(body_data, row[13])
-
+            # Bodies are already decompressed during indexing
             if body_data is not None:
                 details['response']['body'] = body_data
 
@@ -189,75 +178,10 @@ class DetailFetcher:
         except Exception:
             return None
 
-    def _try_decompress(self, data: bytes, content_type: str) -> bytes:
-        """Try to decompress body based on content encoding.
-
-        Args:
-            data: Compressed body data
-            content_type: Content-Type header value
-
-        Returns:
-            Decompressed data or original data if decompression fails
-        """
-        # Try to detect encoding from content-type or try common compressions
-        encoding = self._detect_encoding(content_type)
-
-        if encoding == 'gzip':
-            try:
-                return gzip.decompress(data)
-            except Exception:
-                pass
-
-        elif encoding == 'br' or encoding == 'brotli':
-            try:
-                return brotli.decompress(data)
-            except Exception:
-                pass
-
-        elif encoding == 'deflate':
-            try:
-                return zlib.decompress(data)
-            except Exception:
-                pass
-
-        # Try all if encoding not detected
-        for decompressor in [gzip.decompress, brotli.decompress, zlib.decompress]:
-            try:
-                return decompressor(data)
-            except Exception:
-                continue
-
-        # Return original if all fail
-        return data
-
-    def _detect_encoding(self, content_type: str) -> Optional[str]:
-        """Detect compression encoding from content-type or content-encoding.
-
-        Args:
-            content_type: Content-Type or Content-Encoding header
-
-        Returns:
-            Encoding name: 'gzip', 'br', 'deflate', or None
-        """
-        if not content_type:
-            return None
-
-        ct_lower = content_type.lower()
-
-        if 'gzip' in ct_lower:
-            return 'gzip'
-        elif 'brotli' in ct_lower or 'br' in ct_lower:
-            return 'br'
-        elif 'deflate' in ct_lower:
-            return 'deflate'
-
-        return None
-
     async def get_request_body(
         self,
         request_id: int,
         request: bool = True,
-        decompress: bool = False,
         encoding: str = 'utf-8'
     ) -> Optional[str | bytes]:
         """Get just the body of a request or response.
@@ -265,7 +189,6 @@ class DetailFetcher:
         Args:
             request_id: Request ID
             request: If True, return request body; else response body
-            decompress: If True, decompress compressed bodies
             encoding: Text encoding for decoding (None to return bytes)
 
         Returns:
@@ -274,14 +197,14 @@ class DetailFetcher:
         offset_col = "req_body_offset" if request else "resp_body_offset"
         length_col = "req_body_length" if request else "resp_body_length"
         preview_col = "req_body_preview" if request else "resp_body_preview"
-        ct_col = "req_content_type" if request else "resp_content_type"
+        blob_col = "req_body_blob" if request else "resp_body_blob"
 
         conn = await self.db.connect()
         cursor = await conn.execute(
             f"""
             SELECT
                 sf.file_path, r.{offset_col}, r.{length_col},
-                r.{preview_col}, r.{ct_col}
+                r.{preview_col}, r.{blob_col}
             FROM requests r
             JOIN session_files sf ON sf.id = r.file_id
             WHERE r.id = ?
@@ -297,22 +220,22 @@ class DetailFetcher:
         offset = row[1]
         length = row[2]
         preview = row[3]
-        content_type = row[4]
+        blob_data = row[4]
 
-        # If no offset/length, return preview
-        if offset is None or length is None:
+        # Try loading from BLOB first (preferred method, already decompressed)
+        if blob_data is not None:
+            body_data = blob_data
+        # Fallback to file-based loading if offsets are available
+        elif offset is not None and length is not None:
+            body_data = await self._load_body_from_file(file_path, offset, length)
+        else:
+            # No body available, return preview
             return preview
-
-        # Load from file
-        body_data = await self._load_body_from_file(file_path, offset, length)
 
         if not body_data:
             return preview
 
-        # Decompress if requested
-        if decompress and content_type:
-            body_data = self._try_decompress(body_data, content_type)
-
+        # Bodies are already decompressed during indexing
         # Decode if encoding specified
         if encoding:
             try:

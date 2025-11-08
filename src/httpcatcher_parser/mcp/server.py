@@ -196,11 +196,6 @@ class HttpCatcherMCPServer:
                                 "default": "summary",
                                 "description": "Level of detail (summary is most context-efficient)"
                             },
-                            "decompress": {
-                                "type": "boolean",
-                                "default": False,
-                                "description": "Decompress compressed bodies (gzip/br)"
-                            },
                             "max_body_size": {
                                 "type": "integer",
                                 "default": 2000,
@@ -483,8 +478,7 @@ class HttpCatcherMCPServer:
             fetcher = DetailFetcher(db)
             details = await fetcher.get_request_details(
                 request_id,
-                detail_level,
-                args.get("decompress", False)
+                detail_level
             )
 
         if not details:

@@ -161,7 +161,7 @@ def main():
     details_parser.add_argument('request_id', type=int, help="Request ID")
     details_parser.add_argument('--level', choices=['full', 'headers', 'request', 'response', 'metadata'],
                                 default='full', help="Detail level")
-    details_parser.add_argument('--decompress', action='store_true', help="Decompress body content")
+    details_parser.add_argument('--full-body', action='store_true', help="Show complete body without truncation")
     details_parser.add_argument('--format', choices=['pretty', 'json'], default='pretty', help="Output format")
 
     # ========================================================================

@@ -1133,8 +1133,7 @@ class Manager:
                 fetcher = DetailFetcher(db)
                 details = await fetcher.get_request_details(
                     args.request_id,
-                    detail_level,
-                    args.decompress
+                    detail_level
                 )
                 return details
 
@@ -1209,7 +1208,17 @@ class Manager:
                         # Try to decode
                         try:
                             body_str = body.decode('utf-8', errors='replace')
-                            if len(body_str) > 1000:
+
+                            # Try to pretty-print JSON
+                            if details.get('req_content_type', '').lower().startswith('application/json'):
+                                try:
+                                    import json
+                                    json_obj = json.loads(body_str)
+                                    body_str = json.dumps(json_obj, indent=2, ensure_ascii=False)
+                                except Exception:
+                                    pass  # Not valid JSON, use raw string
+
+                            if not args.full_body and len(body_str) > 1000:
                                 body_str = body_str[:1000] + f"\n... ({len(body) - 1000} more bytes)"
                             print(body_str)
                         except Exception:
@@ -1244,7 +1253,17 @@ class Manager:
                         # Try to decode
                         try:
                             body_str = body.decode('utf-8', errors='replace')
-                            if len(body_str) > 1000:
+
+                            # Try to pretty-print JSON
+                            if details.get('resp_content_type', '').lower().startswith('application/json'):
+                                try:
+                                    import json
+                                    json_obj = json.loads(body_str)
+                                    body_str = json.dumps(json_obj, indent=2, ensure_ascii=False)
+                                except Exception:
+                                    pass  # Not valid JSON, use raw string
+
+                            if not args.full_body and len(body_str) > 1000:
                                 body_str = body_str[:1000] + f"\n... ({len(body) - 1000} more bytes)"
                             print(body_str)
                         except Exception:
