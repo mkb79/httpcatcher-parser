@@ -100,7 +100,7 @@ def _headers_to_dict_multi(headers_list: list[tuple[str, str]]) -> dict[str, lis
     Returns:
         A dictionary mapping header names to a list of values, preserving duplicates.
     """
-    out: dict[str, list[str]] = []
+    out: dict[str, list[str]] = {}
     for k, v in headers_list:
         out.setdefault(k, []).append(v)
     return out
@@ -234,7 +234,7 @@ def _bytes_as_text_or_b64(b: bytes) -> Tuple[str, Optional[str]]:
     """Render bytes as text when reasonable, otherwise base64-encode.
 
     Heuristic: if more than ~15% of bytes are non-printable ASCII, the output is
-    returned as Base64 with ``encoding="base64"``; otherwise it's decoded as UTF‑8
+    returned as Base64 with ``encoding="base64"``; otherwise it's decoded as UTF-8
     (fallback to latin-1).
 
     Args:
@@ -392,17 +392,17 @@ def _build_url_and_qs(url_or_path: str, host: Optional[str]) -> tuple[str, list[
 
 
 # ============================================================================
-# Aggregators (per req_id)
+# Aggregators (per request_id)
 # ============================================================================
 
 
 @dataclass
-class ReqAgg:
-    """Aggregation container for request/response information of a single req_id."""
+class RequestAgg:
+    """Aggregation container for request/response information of a single request_id."""
 
     # linkage
-    req_id: int
-    conn_id: Optional[int] = None
+    request_id: int
+    connection_id: Optional[int] = None
 
     # request
     req_header_ts: Optional[int] = None
@@ -427,12 +427,12 @@ class ReqAgg:
     httpver_resp: Optional[str] = None
 
 
-def _ensure(d: Dict[int, ReqAgg], req_id: int) -> ReqAgg:
-    """Return the aggregator for ``req_id``, creating it if necessary."""
-    a = d.get(req_id)
+def _ensure_request(d: Dict[int, RequestAgg], request_id: int) -> RequestAgg:
+    """Return the aggregator for ``request_id``, creating it if necessary."""
+    a = d.get(request_id)
     if a is None:
-        a = ReqAgg(req_id=req_id)
-        d[req_id] = a
+        a = RequestAgg(request_id=request_id)
+        d[request_id] = a
     return a
 
 
@@ -469,25 +469,25 @@ def har_from_session(
     """
     scanner = HttpCatcherScanner.default()
 
-    # Connection frames and mapping conn_id -> frame
-    conns: Dict[int, ConnectionFrame] = {}
-    # req_id -> aggregation
-    by_req: Dict[int, ReqAgg] = {}
-    # Map req_id -> conn_id (from RMI)
-    rmi_conn_map: Dict[int, int] = {}
+    # Connection frames and mapping connection_id -> frame
+    connections: Dict[int, ConnectionFrame] = {}
+    # request_id -> aggregation
+    by_request: Dict[int, RequestAgg] = {}
+    # Map request_id -> connection_id (from RMI)
+    rmi_connection_map: Dict[int, int] = {}
 
     for item in scanner.scan(session_path):
         if isinstance(item, ConnectionFrame):
-            conns[item.conn_id] = item
+            connections[item.connection_id] = item
 
         elif isinstance(item, RequestMainInfo):
-            a = _ensure(by_req, item.req_id)
-            a.conn_id = a.conn_id or item.conn_id
-            rmi_conn_map[item.req_id] = item.conn_id
+            a = _ensure_request(by_request, item.request_id)
+            a.connection_id = a.connection_id or item.connection_id
+            rmi_connection_map[item.request_id] = item.connection_id
             a.rmi_ts_leading = item.ts_leading
 
         elif isinstance(item, RequestHeader):
-            a = _ensure(by_req, item.req_id)
+            a = _ensure_request(by_request, item.request_id)
             a.req_header_ts = a.req_header_ts or item.ts_post
             a.req_header = item.payload
             first, _ = _split_headers_blob_list(item.payload or b"")
@@ -497,11 +497,11 @@ def har_from_session(
             a.httpver_req = httpver or a.httpver_req
 
         elif isinstance(item, RequestBody):
-            a = _ensure(by_req, item.req_id)
+            a = _ensure_request(by_request, item.request_id)
             a.req_bodies.append(item.payload or b"")
 
         elif isinstance(item, ResponseHeader):
-            a = _ensure(by_req, item.req_id)
+            a = _ensure_request(by_request, item.request_id)
             a.resp_header_ts = a.resp_header_ts or item.ts_post
             a.resp_header = item.payload
             first, _ = _split_headers_blob_list(item.payload or b"")
@@ -511,7 +511,7 @@ def har_from_session(
             a.httpver_resp = a.httpver_resp or httpver
 
         elif isinstance(item, ResponseBody):
-            a = _ensure(by_req, item.req_id)
+            a = _ensure_request(by_request, item.request_id)
             a.resp_bodies.append(item.payload or b"")
             a.resp_last_ts = item.ts_post or a.resp_last_ts
 
@@ -528,8 +528,8 @@ def har_from_session(
         }
     }
 
-    for req_id, agg in by_req.items():
-        conn = conns.get(agg.conn_id or rmi_conn_map.get(req_id))
+    for request_id, agg in by_request.items():
+        conn = connections.get(agg.connection_id or rmi_connection_map.get(request_id))
 
         # ---- Request ------------------------------------------------------
         req_first, req_headers_list = _split_headers_blob_list(agg.req_header or b"")
